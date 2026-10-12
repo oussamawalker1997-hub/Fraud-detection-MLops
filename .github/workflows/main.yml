@@ -1,0 +1,23 @@
+name: CI/CD Docker Build
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout du code source
+      uses: actions/checkout@v3
+
+    - name: Vérification de l'environnement Docker
+      run: docker --version
+
+    - name: Build de l'image Docker de l'API
+      run: docker build -t fraud-detection-api:latest .
+
+    - name: Succès du Build
+      run: echo "L'image Docker a été construite avec succès dans un environnement Linux propre."
