@@ -6,9 +6,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copie du code source de l'API et de l'historique MLflow
+# Copie exclusive du code source de l'API
 COPY src/api /app/src/api
-COPY mlruns /app/mlruns
 
 # Exposition du port
 EXPOSE 8000
