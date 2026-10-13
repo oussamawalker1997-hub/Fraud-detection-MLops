@@ -2,11 +2,19 @@
 
 WORKDIR /app
 
-# Copie et installation stricte des dépendances
+# Installation des utilitaires système pour télécharger le modèle
+RUN apt-get update && apt-get install -y wget unzip && rm -rf /var/lib/apt/lists/*
+
+# Copie et installation des dépendances
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copie exclusive du code source de l'API
+# Téléchargement et extraction dynamique du modèle depuis GitHub Releases
+RUN wget -q https://github.com/oussamawalker1997-hub/Fraud-detection-MLops/releases/download/v1.0.0/mlruns.zip && \
+    unzip -q mlruns.zip -d /app/ && \
+    rm mlruns.zip
+
+# Copie du code source de l'API
 COPY src/api /app/src/api
 
 # Exposition du port
