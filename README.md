@@ -18,6 +18,12 @@ The architecture is designed to be scalable, reproducible, and completely decoup
 *   **CI/CD & Automation:** GitHub Actions
 *   **Artifact Storage:** GitHub Releases (Acting as a lightweight Model Registry)
 
+## 📊 Model Monitoring & Data Drift
+In a production environment, machine learning models degrade over time due to changing data patterns (concept and data drift). This project includes monitoring capabilities using **Evidently AI**:
+- **Automated Drift Reports:** Generates comprehensive HTML reports comparing inference traffic against reference baseline datasets.
+- **Proactive Maintenance:** Tracks statistical metrics across features (e.g., transaction amounts, temporal shifts) to determine optimal retraining triggers.
+- 
+
 ## 🚀 Key Engineering Features
 
 1.  **Decoupled Model Architecture:** 
