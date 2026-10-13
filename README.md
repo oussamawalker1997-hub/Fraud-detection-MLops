@@ -1,3 +1,6 @@
+[![CI/CD Docker Build](https://github.com/oussamawalker1997-hub/fraud-detection-mlops/actions/workflows/main.yml/badge.svg)](https://github.com/oussamawalker1997-hub/fraud-detection-mlops/actions)
+
+This project implements a production-ready Machine Learning API for real-time fraud detection...
 # Real-Time Fraud Detection System: End-to-End MLOps Pipeline
 
 ## 📌 Project Overview
