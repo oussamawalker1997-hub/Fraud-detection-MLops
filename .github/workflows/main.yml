@@ -13,6 +13,17 @@ jobs:
     - name: Checkout du code source
       uses: actions/checkout@v3
 
+    - name: Configuration de Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+
+    - name: Installation des dépendances et tests unitaires
+      run: |
+        pip install -r requirements.txt
+        pip install pytest httpx
+        python -m pytest tests/
+
     - name: Vérification de l'environnement Docker
       run: docker --version
 
