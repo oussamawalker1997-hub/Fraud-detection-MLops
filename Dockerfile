@@ -18,7 +18,7 @@ RUN curl -fSL -o mlruns.zip "https://github.com/oussamawalker1997-hub/Fraud-dete
 COPY src/api /app/src/api
 
 # Exposition du port
-EXPOSE 8000
+EXPOSE 8080
 
 # Démarrage du serveur
-CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8080"]
