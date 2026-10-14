@@ -4,6 +4,12 @@ from pydantic import BaseModel
 import mlflow
 import os
 
+
+# Définir explicitement le chemin de suivi MLflow
+mlflow.set_tracking_uri("file:///app/mlruns")
+
+# Exemple de chargement (adapte l'URI selon ton modèle exact)
+# model = mlflow.pyfunc.load_model("runs:/<run_id>/model")
 # Exemple de chargement du modèle
 model_uri = "mlruns/..." # Ajustez selon votre structure MLflow
 model = mlflow.pyfunc.load_model(model_uri)
