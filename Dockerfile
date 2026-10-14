@@ -1,24 +1,22 @@
-﻿FROM python:3.10-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
-# Plus besoin de unzip, nous utiliserons Python
+# Installer les dépendances système nécessaires (curl pour télécharger le modèle)
 RUN apt-get update && apt-get install -y curl ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# Copie et installation des dépendances
+# Copier et installer les exigences Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Téléchargement et extraction cross-platform avec Python
+# Télécharger et décompresser le modèle MLflow depuis les releases GitHub
 RUN curl -fSL -o mlruns.zip "https://github.com/oussamawalker1997-hub/Fraud-detection-MLops/releases/download/v1.0.0/mlruns.zip" && \
-    python -m zipfile -e mlruns.zip /app/ && \
+    unzip mlruns.zip -d . && \
     rm mlruns.zip
 
-# Copie du code source de l'API
-COPY src/api /app/src/api
+# Copier le code source de l'API
+COPY src /app/src
 
-# Exposition du port
+# Exposer le port et lancer l'application avec Uvicorn sur le port 8080 (requis pour Cloud Run)
 EXPOSE 8080
-
-# Démarrage du serveur
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8080"]
