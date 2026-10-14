@@ -2,6 +2,11 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import mlflow
+import os
+
+# Exemple de chargement du modèle
+model_uri = "mlruns/..." # Ajustez selon votre structure MLflow
+model = mlflow.pyfunc.load_model(model_uri)
 
 app = FastAPI(
     title="Fraud Detection API",
