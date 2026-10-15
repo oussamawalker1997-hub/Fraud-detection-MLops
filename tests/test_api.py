@@ -1,10 +1,8 @@
-﻿from fastapi.testclient import TestClient
-from unittest.mock import patch
-from src.api.main import app
 import os
 os.environ["TESTING"] = "True"
 
 from fastapi.testclient import TestClient
+from unittest.mock import patch
 from src.api.main import app
 
 client = TestClient(app)
