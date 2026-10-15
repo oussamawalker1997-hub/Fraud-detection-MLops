@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import mlflow
 
-# Définir explicitement le chemin de suivi MLflow
+# On garde la DB pour lire les métriques
 mlflow.set_tracking_uri("sqlite:////app/mlflow.db")
 
 app = FastAPI(
@@ -13,9 +13,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Chargement conditionnel (ignoré en mode test unitaire)
-# Chargement conditionnel (ignoré en mode test unitaire)
-model_uri = "not_set"  # Initialisation par défaut
+model_uri = "not_set"
 if os.getenv("TESTING") == "True":
     model = None
     model_uri = "test_mode"
@@ -27,7 +25,12 @@ else:
             runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
             if not runs.empty:
                 best_run_id = runs.loc[runs['metrics.pr_auc'].idxmax()]['run_id']
-                model_uri = f"runs:/{best_run_id}/xgboost-model"
+                
+                # LA CORRECTION EST ICI : On force le chemin physique Linux absolu
+                # au lieu de dépendre de la base de données (runs:/...)
+                model_uri = f"/app/mlruns/{experiment.experiment_id}/{best_run_id}/artifacts/xgboost-model"
+                
+                # Chargement du modèle depuis le dossier direct
                 model = mlflow.pyfunc.load_model(model_uri)
                 print(f"[*] Modèle chargé avec succès depuis le run : {best_run_id}")
             else:
@@ -39,9 +42,8 @@ else:
     except Exception as e:
         model = None
         model_uri = "error_loading"
-        print(f"[ERREUR] Impossible de charger le modèle : {e}")
+        print(f"[ERREUR CRITIQUE] Impossible de charger le modèle : {e}")
 
-# Schéma strict des données d'entrée
 class Transaction(BaseModel):
     Time: float
     V1: float
@@ -77,7 +79,7 @@ class Transaction(BaseModel):
 @app.get("/")
 def health_check():
     if model is None and os.getenv("TESTING") != "True":
-        raise HTTPException(status_code=503, detail="Modèle non chargé. Vérifiez MLflow.")
+        raise HTTPException(status_code=503, detail="Modèle non chargé. Vérifiez les logs Cloud Run.")
     return {"status": "healthy", "model_uri": model_uri}
 
 @app.post("/predict")
