@@ -14,6 +14,8 @@ app = FastAPI(
 )
 
 # Chargement conditionnel (ignoré en mode test unitaire)
+# Chargement conditionnel (ignoré en mode test unitaire)
+model_uri = "not_set"  # Initialisation par défaut
 if os.getenv("TESTING") == "True":
     model = None
     model_uri = "test_mode"
