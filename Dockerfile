@@ -3,8 +3,7 @@ FROM python:3.10-slim
 WORKDIR /app
 
 # Installer les dépendances système nécessaires (curl pour télécharger le modèle)
-RUN apt-get update && apt-get install -y curl ca-certificates && rm -rf /var/lib/apt/lists/*
-
+RUN apt-get update && apt-get install -y curl ca-certificates unzip && rm -rf /var/lib/apt/lists/*
 # Copier et installer les exigences Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
