@@ -11,7 +11,8 @@ mlflow.set_tracking_uri("file:///app/mlruns")
 # Exemple de chargement (adapte l'URI selon ton modèle exact)
 # model = mlflow.pyfunc.load_model("runs:/<run_id>/model")
 # Exemple de chargement du modèle
-model_uri = "mlruns/..." # Ajustez selon votre structure MLflow
+# Exemple probable du problème actuel :
+model_uri = os.getenv("MODEL_URI", "chemin_incorrect_ou_vide")
 model = mlflow.pyfunc.load_model(model_uri)
 
 app = FastAPI(
