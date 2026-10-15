@@ -3,10 +3,13 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import mlflow
 import os
+os.environ["TESTING"] = "True"
 
+from fastapi.testclient import TestClient
+from src.api.main import app
 
-# Définir explicitement le chemin de suivi MLflow
-# Définir explicitement le chemin de suivi MLflow
+client = TestClient(app)
+
 mlflow.set_tracking_uri("file:///app/mlruns")
 
 app = FastAPI(
