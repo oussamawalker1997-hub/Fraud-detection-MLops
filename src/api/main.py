@@ -5,7 +5,7 @@ from pydantic import BaseModel
 import mlflow
 
 # Définir explicitement le chemin de suivi MLflow
-mlflow.set_tracking_uri("file:///app/mlruns")
+mlflow.set_tracking_uri("sqlite:////app/mlflow.db")
 
 app = FastAPI(
     title="Fraud Detection API",
