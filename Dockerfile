@@ -8,11 +8,9 @@ RUN apt-get update && apt-get install -y curl ca-certificates unzip && rm -rf /v
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Télécharger et décompresser le modèle MLflow depuis les releases GitHub
-RUN curl -fSL -o mlruns.zip "https://github.com/oussamawalker1997-hub/Fraud-detection-MLops/releases/download/v1.0.0/mlruns.zip" && \
-    unzip mlruns.zip -d . && \
-    rm mlruns.zip
-
+# Copier l'archive locale directement dans l'image
+COPY mlruns.zip .
+RUN unzip mlruns.zip -d . && rm mlruns.zip
 # Copier le code source de l'API
 COPY src /app/src
 
