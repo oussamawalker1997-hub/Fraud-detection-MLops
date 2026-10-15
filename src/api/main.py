@@ -4,44 +4,38 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import mlflow
 
-# On garde la DB pour lire les métriques
-mlflow.set_tracking_uri("sqlite:////app/mlflow.db")
-
 app = FastAPI(
     title="Fraud Detection API",
     description="API d'inférence temps réel pour la détection de fraude.",
     version="1.0.0"
 )
 
+model = None
 model_uri = "not_set"
+
 if os.getenv("TESTING") == "True":
-    model = None
     model_uri = "test_mode"
-    print("[INFO] Mode test actif : chargement MLflow ignoré.")
+    print("[INFO] Mode test actif : chargement ignoré.")
 else:
     try:
-        experiment = mlflow.get_experiment_by_name("Fraud_Detection_XGBoost")
-        if experiment:
-            runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
-            if not runs.empty:
-                best_run_id = runs.loc[runs['metrics.pr_auc'].idxmax()]['run_id']
-                
-                # LA CORRECTION EST ICI : On force le chemin physique Linux absolu
-                # au lieu de dépendre de la base de données (runs:/...)
-                model_uri = f"/app/mlruns/{experiment.experiment_id}/{best_run_id}/artifacts/xgboost-model"
-                
-                # Chargement du modèle depuis le dossier direct
-                model = mlflow.pyfunc.load_model(model_uri)
-                print(f"[*] Modèle chargé avec succès depuis le run : {best_run_id}")
-            else:
-                model = None
-                model_uri = "no_runs_found"
+        # --- LA SOLUTION DÉFINITIVE ---
+        # On ignore complètement la base de données (mlflow.db) et get_experiment_by_name.
+        # On scanne directement le dossier décompressé pour trouver le dossier contenant 'MLmodel'
+        print("Recherche dynamique du modèle dans /app/mlruns...")
+        for root_dir, dirs, files in os.walk("/app/mlruns"):
+            if "MLmodel" in files:
+                model_uri = root_dir
+                break
+        
+        if model_uri != "not_set":
+            # On charge directement le chemin physique absolu du modèle !
+            model = mlflow.pyfunc.load_model(model_uri)
+            print(f"[*] Modèle chargé avec succès depuis : {model_uri}")
         else:
-            model = None
-            model_uri = "experiment_not_found"
+            model_uri = "model_file_not_found"
+            print("[ERREUR] Le fichier MLmodel est introuvable dans le dossier /app/mlruns")
     except Exception as e:
-        model = None
-        model_uri = "error_loading"
+        model_uri = f"error_loading: {e}"
         print(f"[ERREUR CRITIQUE] Impossible de charger le modèle : {e}")
 
 class Transaction(BaseModel):
@@ -79,7 +73,8 @@ class Transaction(BaseModel):
 @app.get("/")
 def health_check():
     if model is None and os.getenv("TESTING") != "True":
-        raise HTTPException(status_code=503, detail="Modèle non chargé. Vérifiez les logs Cloud Run.")
+        # J'ai ajouté l'affichage de l'erreur directement sur la page web pour la voir sans aller dans les logs
+        raise HTTPException(status_code=503, detail=f"Modèle non chargé. Raison : {model_uri}")
     return {"status": "healthy", "model_uri": model_uri}
 
 @app.post("/predict")
