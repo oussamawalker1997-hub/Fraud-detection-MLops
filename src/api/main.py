@@ -1,14 +1,8 @@
-﻿import pandas as pd
+import os
+import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import mlflow
-import os
-os.environ["TESTING"] = "True"
-
-from fastapi.testclient import TestClient
-from src.api.main import app
-
-client = TestClient(app)
 
 mlflow.set_tracking_uri("file:///app/mlruns")
 
@@ -18,23 +12,22 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Chargement dynamique du modèle au démarrage de l'API (sauf si on est en mode test unitaire)
+# Empêcher l'exécution du chargement MLflow pendant les tests unitaires
 if os.getenv("TESTING") == "True":
     model = None
     model_uri = "test_mode"
-    print("[INFO] Mode test détecté : chargement du modèle ignoré.")
+    print("[INFO] Mode test actif : chargement MLflow ignoré.")
 else:
     try:
         experiment = mlflow.get_experiment_by_name("Fraud_Detection_XGBoost")
         runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
         best_run_id = runs.loc[runs['metrics.pr_auc'].idxmax()]['run_id']
         model_uri = f"runs:/{best_run_id}/xgboost-model"
-        
         model = mlflow.pyfunc.load_model(model_uri)
-        print(f"[*] Modèle chargé avec succès depuis le run : {best_run_id}")
     except Exception as e:
         model = None
         model_uri = "error_loading"
+        print(f"[ERREUR] Impossible de charger le modèle : {e}")
         print(f"[ERREUR] Impossible de charger le modèle : {e}")
 model_uri = os.getenv("MODEL_URI", "chemin_incorrect_ou_vide")
 model = mlflow.pyfunc.load_model(model_uri)
