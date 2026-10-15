@@ -10,7 +10,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copier l'archive locale directement dans l'image
 COPY mlruns.zip .
-RUN unzip mlruns.zip -d . && rm mlruns.zip
+# Copier l'archive locale
+COPY mlruns.zip .
+# Décompresser en ignorant l'erreur Windows (exit code 1)
+RUN unzip mlruns.zip -d . || true
+# Nettoyer l'archive
+RUN rm mlruns.zip
 # Copier le code source de l'API
 COPY src /app/src
 
