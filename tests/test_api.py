@@ -1,9 +1,15 @@
 ﻿from fastapi.testclient import TestClient
 from unittest.mock import patch
 from src.api.main import app
+import os
+os.environ["TESTING"] = "True"
+
+from fastapi.testclient import TestClient
+from src.api.main import app
 
 client = TestClient(app)
 
+# Tes fonctions de test (ex: def test_read_main(): ...)
 def test_health_check():
     """Vérifie que l'API répond au endpoint racine."""
     response = client.get("/")
