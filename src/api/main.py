@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import mlflow
 
+# Définir explicitement le chemin de suivi MLflow
 mlflow.set_tracking_uri("file:///app/mlruns")
 
 app = FastAPI(
@@ -12,7 +13,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Empêcher l'exécution du chargement MLflow pendant les tests unitaires
+# Chargement conditionnel (ignoré en mode test unitaire)
 if os.getenv("TESTING") == "True":
     model = None
     model_uri = "test_mode"
@@ -20,37 +21,23 @@ if os.getenv("TESTING") == "True":
 else:
     try:
         experiment = mlflow.get_experiment_by_name("Fraud_Detection_XGBoost")
-        runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
-        best_run_id = runs.loc[runs['metrics.pr_auc'].idxmax()]['run_id']
-        model_uri = f"runs:/{best_run_id}/xgboost-model"
-        model = mlflow.pyfunc.load_model(model_uri)
+        if experiment:
+            runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
+            if not runs.empty:
+                best_run_id = runs.loc[runs['metrics.pr_auc'].idxmax()]['run_id']
+                model_uri = f"runs:/{best_run_id}/xgboost-model"
+                model = mlflow.pyfunc.load_model(model_uri)
+                print(f"[*] Modèle chargé avec succès depuis le run : {best_run_id}")
+            else:
+                model = None
+                model_uri = "no_runs_found"
+        else:
+            model = None
+            model_uri = "experiment_not_found"
     except Exception as e:
         model = None
         model_uri = "error_loading"
         print(f"[ERREUR] Impossible de charger le modèle : {e}")
-        print(f"[ERREUR] Impossible de charger le modèle : {e}")
-model_uri = os.getenv("MODEL_URI", "chemin_incorrect_ou_vide")
-model = mlflow.pyfunc.load_model(model_uri)
-
-app = FastAPI(
-    title="Fraud Detection API",
-    description="API d'inférence temps réel pour la détection de fraude.",
-    version="1.0.0"
-)
-
-# Chargement dynamique du modèle au démarrage de l'API
-try:
-    experiment = mlflow.get_experiment_by_name("Fraud_Detection_XGBoost")
-    runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
-    best_run_id = runs.loc[runs['metrics.pr_auc'].idxmax()]['run_id']
-    model_uri = f"runs:/{best_run_id}/xgboost-model"
-    
-    # pyfunc charge dynamiquement l'artefact avec une interface standard .predict()
-    model = mlflow.pyfunc.load_model(model_uri)
-    print(f"[*] Modèle chargé avec succès depuis le run : {best_run_id}")
-except Exception as e:
-    model = None
-    print(f"[ERREUR] Impossible de charger le modèle : {e}")
 
 # Schéma strict des données d'entrée
 class Transaction(BaseModel):
@@ -87,7 +74,7 @@ class Transaction(BaseModel):
 
 @app.get("/")
 def health_check():
-    if model is None:
+    if model is None and os.getenv("TESTING") != "True":
         raise HTTPException(status_code=503, detail="Modèle non chargé. Vérifiez MLflow.")
     return {"status": "healthy", "model_uri": model_uri}
 
@@ -96,10 +83,7 @@ def predict_fraud(transaction: Transaction):
     if model is None:
         raise HTTPException(status_code=503, detail="Modèle non chargé.")
     
-    # Conversion du JSON validé vers DataFrame
     input_data = pd.DataFrame([transaction.model_dump()])
-    
-    # Prédiction
     prediction = model.predict(input_data)
     is_fraud = int(prediction[0])
     
