@@ -2,6 +2,7 @@ import os
 import pandas as pd
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List
 import mlflow
@@ -20,6 +21,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Exposer le dossier des rapports Evidently AI
+reports_path = "/app/reports" if os.path.exists("/app/reports") else "reports"
+if os.path.exists(reports_path):
+    app.mount("/reports", StaticFiles(directory=reports_path), name="reports")
+else:
+    print(f"[WARNING] Le dossier de rapports {reports_path} n'existe pas.")
 
 model = None
 model_uri = "not_set"
