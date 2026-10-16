@@ -1,43 +1,47 @@
 import os
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import List
 import mlflow
 
 app = FastAPI(
-    title="Fraud Detection API",
-    description="API d'inférence temps réel pour la détection de fraude.",
-    version="1.0.0"
+    title="Fraud Intelligence API",
+    description="API d'inférence temps réel et batch pour la détection de fraude.",
+    version="1.1.0"
+)
+
+# Configuration CORS pour autoriser le futur Frontend React à communiquer avec l'API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # En production, remplacer par l'URL exacte du frontend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 model = None
 model_uri = "not_set"
 
+# Chargement du modèle (identique et robuste)
 if os.getenv("TESTING") == "True":
     model_uri = "test_mode"
     print("[INFO] Mode test actif : chargement ignoré.")
 else:
     try:
-        # --- LA SOLUTION DÉFINITIVE ---
-        # On ignore complètement la base de données (mlflow.db) et get_experiment_by_name.
-        # On scanne directement le dossier décompressé pour trouver le dossier contenant 'MLmodel'
-        print("Recherche dynamique du modèle dans /app/mlruns...")
         for root_dir, dirs, files in os.walk("/app"):
-            
             if "MLmodel" in files:
                 model_uri = root_dir
                 break
         
         if model_uri != "not_set":
-            # On charge directement le chemin physique absolu du modèle !
             model = mlflow.pyfunc.load_model(model_uri)
             print(f"[*] Modèle chargé avec succès depuis : {model_uri}")
         else:
             model_uri = "model_file_not_found"
-            print("[ERREUR] Le fichier MLmodel est introuvable dans le dossier /app/mlruns")
     except Exception as e:
         model_uri = f"error_loading: {e}"
-        print(f"[ERREUR CRITIQUE] Impossible de charger le modèle : {e}")
 
 class Transaction(BaseModel):
     Time: float
@@ -74,9 +78,8 @@ class Transaction(BaseModel):
 @app.get("/")
 def health_check():
     if model is None and os.getenv("TESTING") != "True":
-        # J'ai ajouté l'affichage de l'erreur directement sur la page web pour la voir sans aller dans les logs
         raise HTTPException(status_code=503, detail=f"Modèle non chargé. Raison : {model_uri}")
-    return {"status": "healthy", "model_uri": model_uri}
+    return {"status": "healthy", "model_uri": model_uri, "api_version": "1.1.0"}
 
 @app.post("/predict")
 def predict_fraud(transaction: Transaction):
@@ -84,10 +87,57 @@ def predict_fraud(transaction: Transaction):
         raise HTTPException(status_code=503, detail="Modèle non chargé.")
     
     input_data = pd.DataFrame([transaction.model_dump()])
-    prediction = model.predict(input_data)
-    is_fraud = int(prediction[0])
+    
+    # Tentative d'extraction de la probabilité en plus de la classe
+    try:
+        # Si le modèle est un classifieur standard avec predict_proba
+        probabilities = model._model_impl.predict_proba(input_data)
+        risk_score = float(probabilities[0][1])
+        is_fraud = int(risk_score > 0.5)
+    except AttributeError:
+        # Fallback si predict_proba n'est pas exposé
+        prediction = model.predict(input_data)
+        is_fraud = int(prediction[0])
+        risk_score = 0.99 if is_fraud == 1 else 0.01
     
     return {
         "is_fraud": is_fraud,
+        "risk_score": round(risk_score, 4),
+        "risk_level": "CRITICAL" if risk_score > 0.7 else ("WARNING" if risk_score > 0.3 else "SAFE"),
         "message": "Transaction frauduleuse détectée !" if is_fraud == 1 else "Transaction légitime."
     }
+
+@app.post("/predict/batch")
+async def predict_fraud_batch(file: UploadFile = File(...)):
+    if model is None:
+        raise HTTPException(status_code=503, detail="Modèle non chargé.")
+    
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Seuls les fichiers CSV sont acceptés.")
+        
+    try:
+        df = pd.read_csv(file.file)
+        
+        # Validation basique des colonnes
+        required_columns = set(Transaction.model_fields.keys())
+        if not required_columns.issubset(df.columns):
+            missing = required_columns - set(df.columns)
+            raise HTTPException(status_code=400, detail=f"Colonnes manquantes dans le CSV : {missing}")
+
+        # Inférence sur le lot
+        predictions = model.predict(df[list(required_columns)])
+        df['is_fraud_prediction'] = predictions.astype(int)
+        
+        # Retourner un résumé et les résultats
+        fraud_count = int(df['is_fraud_prediction'].sum())
+        total_count = len(df)
+        
+        return {
+            "total_processed": total_count,
+            "fraud_detected": fraud_count,
+            "fraud_rate": round(fraud_count / total_count, 4) if total_count > 0 else 0,
+            "results": df[['Time', 'Amount', 'is_fraud_prediction']].head(100).to_dict(orient="records")
+        }
+        
+    except Exception as e:
+         raise HTTPException(status_code=500, detail=f"Erreur lors du traitement du lot : {str(e)}")
