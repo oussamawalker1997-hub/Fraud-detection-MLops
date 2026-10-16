@@ -22,7 +22,7 @@ else:
         # On ignore complètement la base de données (mlflow.db) et get_experiment_by_name.
         # On scanne directement le dossier décompressé pour trouver le dossier contenant 'MLmodel'
         print("Recherche dynamique du modèle dans /app/mlruns...")
-        for root_dir, dirs, files in os.walk("/app/mlruns"):
+        for root_dir, dirs, files in os.walk("/app"):
             if "MLmodel" in files:
                 model_uri = root_dir
                 break
