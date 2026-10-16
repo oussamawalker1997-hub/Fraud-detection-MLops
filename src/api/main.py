@@ -2,7 +2,10 @@ import os
 import pandas as pd
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+<<<<<<< HEAD
 from fastapi.staticfiles import StaticFiles
+=======
+>>>>>>> 25b0d41 (Ajout des autorisations CORS)
 from pydantic import BaseModel
 from typing import List
 import mlflow
@@ -11,6 +14,26 @@ app = FastAPI(
     title="Fraud Intelligence API",
     description="API d'inférence temps réel et batch pour la détection de fraude.",
     version="1.1.0"
+<<<<<<< HEAD
+=======
+
+    app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:5174"], # Ajoute tes ports locaux ici, ou mets ["*"] pour tout accepter
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Configuration CORS pour autoriser le futur Frontend React à communiquer avec l'API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # En production, remplacer par l'URL exacte du frontend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    
+>>>>>>> 25b0d41 (Ajout des autorisations CORS)
 )
 
 # Configuration CORS pour autoriser le futur Frontend React à communiquer avec l'API
@@ -148,4 +171,8 @@ async def predict_fraud_batch(file: UploadFile = File(...)):
         }
         
     except Exception as e:
+<<<<<<< HEAD
          raise HTTPException(status_code=500, detail=f"Erreur lors du traitement du lot : {str(e)}")
+=======
+         raise HTTPException(status_code=500, detail=f"Erreur lors du traitement du lot : {str(e)}")
+>>>>>>> 25b0d41 (Ajout des autorisations CORS)
