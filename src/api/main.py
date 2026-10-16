@@ -23,6 +23,7 @@ else:
         # On scanne directement le dossier décompressé pour trouver le dossier contenant 'MLmodel'
         print("Recherche dynamique du modèle dans /app/mlruns...")
         for root_dir, dirs, files in os.walk("/app"):
+            
             if "MLmodel" in files:
                 model_uri = root_dir
                 break
