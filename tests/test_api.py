@@ -7,17 +7,14 @@ from src.api.main import app
 
 client = TestClient(app)
 
-# Tes fonctions de test (ex: def test_read_main(): ...)
 def test_health_check():
     """Vérifie que l'API répond au endpoint racine."""
     response = client.get("/")
-    # On accepte 200 (si le modèle est chargé) ou 503 (si l'environnement CI n'a pas mlflow.db)
     assert response.status_code in [200, 503]
 
 @patch("src.api.main.model")
 def test_predict_endpoint_format(mock_model):
     """Vérifie que l'API traite bien les requêtes en simulant le modèle (Mock)."""
-    # Simulation du retour de la prédiction du modèle XGBoost
     mock_model.predict.return_value = [0]
 
     payload = {
@@ -31,7 +28,10 @@ def test_predict_endpoint_format(mock_model):
         "Amount": 100.0
     }
     
-    response = client.post("/predict", json=payload)
+    # Ajout du header de sécurité pour passer l'authentification
+    headers = {"X-API-Key": "mlops-dev-key-2026"}
+    
+    response = client.post("/predict", json=payload, headers=headers)
     
     assert response.status_code == 200
     data = response.json()
