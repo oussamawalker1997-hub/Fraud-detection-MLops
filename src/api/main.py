@@ -2,10 +2,7 @@ import os
 import pandas as pd
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-<<<<<<< HEAD
 from fastapi.staticfiles import StaticFiles
-=======
->>>>>>> 25b0d41 (Ajout des autorisations CORS)
 from pydantic import BaseModel
 from typing import List
 import mlflow
@@ -14,26 +11,6 @@ app = FastAPI(
     title="Fraud Intelligence API",
     description="API d'inférence temps réel et batch pour la détection de fraude.",
     version="1.1.0"
-<<<<<<< HEAD
-=======
-
-    app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174"], # Ajoute tes ports locaux ici, ou mets ["*"] pour tout accepter
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Configuration CORS pour autoriser le futur Frontend React à communiquer avec l'API
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # En production, remplacer par l'URL exacte du frontend
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    
->>>>>>> 25b0d41 (Ajout des autorisations CORS)
 )
 
 # Configuration CORS pour autoriser le futur Frontend React à communiquer avec l'API
@@ -119,21 +96,33 @@ def predict_fraud(transaction: Transaction):
     
     input_data = pd.DataFrame([transaction.model_dump()])
     
-    # Tentative d'extraction de la probabilité en plus de la classe
     try:
-        # Si le modèle est un classifieur standard avec predict_proba
-        probabilities = model._model_impl.predict_proba(input_data)
-        risk_score = float(probabilities[0][1])
-        is_fraud = int(risk_score > 0.5)
-    except AttributeError:
-        # Fallback si predict_proba n'est pas exposé
+        # Extraction agressive du modèle natif sous la couche MLflow
+        if hasattr(model, "_model_impl") and hasattr(model._model_impl, "predict_proba"):
+            probs = model._model_impl.predict_proba(input_data)
+            risk_score = float(probs[0][1]) # Index 1 = probabilité de fraude
+        elif hasattr(model, "unwrap_python_model"):
+            unwrapped = model.unwrap_python_model()
+            if hasattr(unwrapped, "predict_proba"):
+                probs = unwrapped.predict_proba(input_data)
+                risk_score = float(probs[0][1])
+            else:
+                risk_score = float(unwrapped.predict(input_data)[0])
+        else:
+            # Fallback absolu
+            prediction = model.predict(input_data)
+            risk_score = float(prediction[0][1] if prediction.ndim > 1 else prediction[0])
+            
+    except Exception as e:
+        print(f"Erreur d'extraction de probabilité: {e}")
         prediction = model.predict(input_data)
-        is_fraud = int(prediction[0])
-        risk_score = 0.99 if is_fraud == 1 else 0.01
+        risk_score = float(prediction[0])
+    
+    is_fraud = int(risk_score > 0.5)
     
     return {
         "is_fraud": is_fraud,
-        "risk_score": round(risk_score, 4),
+        "risk_score": float(risk_score), 
         "risk_level": "CRITICAL" if risk_score > 0.7 else ("WARNING" if risk_score > 0.3 else "SAFE"),
         "message": "Transaction frauduleuse détectée !" if is_fraud == 1 else "Transaction légitime."
     }
@@ -171,8 +160,4 @@ async def predict_fraud_batch(file: UploadFile = File(...)):
         }
         
     except Exception as e:
-<<<<<<< HEAD
          raise HTTPException(status_code=500, detail=f"Erreur lors du traitement du lot : {str(e)}")
-=======
-         raise HTTPException(status_code=500, detail=f"Erreur lors du traitement du lot : {str(e)}")
->>>>>>> 25b0d41 (Ajout des autorisations CORS)
