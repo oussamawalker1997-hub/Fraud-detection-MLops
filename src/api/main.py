@@ -24,6 +24,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+<<<<<<< HEAD
 # 2. Configuration de l'authentification par clé d'API
 API_KEY = os.getenv("API_KEY", "mlops-dev-key-2026")
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -33,6 +34,18 @@ def get_api_key(api_key_header: str = Security(api_key_header)):
         raise HTTPException(status_code=403, detail="Accès refusé : Clé d'API invalide.")
     return api_key_header
 
+=======
+# 2. Configuration de l'authentification par clé d'API (Correction OpenAPI)
+API_KEY = os.getenv("API_KEY", "mlops-dev-key-2026")
+api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=True)
+
+def get_api_key(api_key: str = Security(api_key_scheme)):
+    if api_key != API_KEY:
+        raise HTTPException(status_code=403, detail="Accès refusé : Clé d'API invalide.")
+    return api_key
+
+# Exposer le dossier des rapports Evidently AI
+>>>>>>> b6ccee2 (fix: resolve OpenAPI security scheme shadowing and enable API key auth)
 reports_path = "/app/reports" if os.path.exists("/app/reports") else "reports"
 if os.path.exists(reports_path):
     app.mount("/reports", StaticFiles(directory=reports_path), name="reports")
@@ -40,6 +53,10 @@ if os.path.exists(reports_path):
 model = None
 model_uri = "not_set"
 
+<<<<<<< HEAD
+=======
+# Chargement du modèle
+>>>>>>> b6ccee2 (fix: resolve OpenAPI security scheme shadowing and enable API key auth)
 if os.getenv("TESTING") == "True":
     model_uri = "test_mode"
 else:
@@ -167,4 +184,8 @@ async def predict_fraud_batch(background_tasks: BackgroundTasks, file: UploadFil
         }
         
     except Exception as e:
+<<<<<<< HEAD
          raise HTTPException(status_code=500, detail=f"Erreur lors de la lecture initiale : {str(e)}")
+=======
+         raise HTTPException(status_code=500, detail=f"Erreur lors de la lecture initiale : {str(e)}")
+>>>>>>> b6ccee2 (fix: resolve OpenAPI security scheme shadowing and enable API key auth)
