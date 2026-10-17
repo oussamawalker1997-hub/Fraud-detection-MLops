@@ -20,9 +20,9 @@ def generate_drift_report(reference_csv_path, current_csv_path, output_html_path
         print(f"[ERROR] Impossible de générer le rapport de dérive : {e}")
 
 if __name__ == "__main__":
-    # Exécution test : chemins à adapter selon ton environnement
+    # Exécution depuis la racine du projet (C:\Users\oussa\fraud-detection-mlops)
     generate_drift_report(
-        reference_csv_path="data/train_reference.csv", 
-        current_csv_path="data/latest_transactions.csv", 
-        output_html_path="/app/reports/data_drift.html"
+        reference_csv_path="data/processed/train.csv", 
+        current_csv_path="data/processed/test.csv", 
+        output_html_path="reports/data_drift.html"
     )
