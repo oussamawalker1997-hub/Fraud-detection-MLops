@@ -21,8 +21,7 @@ jobs:
     - name: Installation des dépendances et tests unitaires
       run: |
         python -m pip install --upgrade pip
-        pip install fastapi uvicorn xgboost mlflow scikit-learn pandas pydantic pytest httpx==0.27.2 starlette==0.37.2
-        pip install fastapi uvicorn xgboost mlflow scikit-learn pandas pydantic pytest httpx==0.27.2 starlette python-multipart
+        pip install fastapi uvicorn xgboost mlflow scikit-learn pandas pydantic pytest httpx==0.27.2 starlette python-multipart evidently
         python -m pytest tests/
 
     - name: Vérification de l'environnement Docker
