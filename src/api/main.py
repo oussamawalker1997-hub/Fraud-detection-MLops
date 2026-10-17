@@ -1,8 +1,7 @@
 import os
 import pandas as pd
 import uuid
-from fastapi import BackgroundTasks
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -129,8 +128,22 @@ def predict_fraud(transaction: Transaction):
         "message": "Transaction frauduleuse détectée !" if is_fraud == 1 else "Transaction légitime."
     }
 
+# --- Nouvelle fonction pour le traitement asynchrone ---
+def process_batch_in_background(df: pd.DataFrame, required_columns: set, job_id: str):
+    try:
+        print(f"[*] Démarrage du traitement asynchrone pour le job {job_id}...")
+        predictions = model.predict(df[list(required_columns)])
+        df['is_fraud_prediction'] = predictions.astype(int)
+        
+        # Sauvegarde des résultats dans le dossier partagé
+        output_path = f"{reports_path}/batch_result_{job_id}.csv"
+        df.to_csv(output_path, index=False)
+        print(f"[+] Job {job_id} terminé avec succès. Fichier généré : {output_path}")
+    except Exception as e:
+        print(f"[ERROR] Échec du job {job_id}: {str(e)}")
+
 @app.post("/predict/batch")
-async def predict_fraud_batch(file: UploadFile = File(...)):
+async def predict_fraud_batch(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     if model is None:
         raise HTTPException(status_code=503, detail="Modèle non chargé.")
     
@@ -139,27 +152,22 @@ async def predict_fraud_batch(file: UploadFile = File(...)):
         
     try:
         df = pd.read_csv(file.file)
-        
-        # Validation basique des colonnes
         required_columns = set(Transaction.model_fields.keys())
+        
         if not required_columns.issubset(df.columns):
             missing = required_columns - set(df.columns)
-            raise HTTPException(status_code=400, detail=f"Colonnes manquantes dans le CSV : {missing}")
+            raise HTTPException(status_code=400, detail=f"Colonnes manquantes : {missing}")
 
-        # Inférence sur le lot
-        predictions = model.predict(df[list(required_columns)])
-        df['is_fraud_prediction'] = predictions.astype(int)
-        
-        # Retourner un résumé et les résultats
-        fraud_count = int(df['is_fraud_prediction'].sum())
-        total_count = len(df)
+        # Génération d'un ID unique et lancement de la tâche en arrière-plan
+        job_id = str(uuid.uuid4())[:8]
+        background_tasks.add_task(process_batch_in_background, df, required_columns, job_id)
         
         return {
-            "total_processed": total_count,
-            "fraud_detected": fraud_count,
-            "fraud_rate": round(fraud_count / total_count, 4) if total_count > 0 else 0,
-            "results": df[['Time', 'Amount', 'is_fraud_prediction']].head(100).to_dict(orient="records")
+            "status": "accepted",
+            "message": "Le fichier est en cours de traitement en arrière-plan.",
+            "job_id": job_id,
+            "results_url": f"/reports/batch_result_{job_id}.csv"
         }
         
     except Exception as e:
-         raise HTTPException(status_code=500, detail=f"Erreur lors du traitement du lot : {str(e)}")
+         raise HTTPException(status_code=500, detail=f"Erreur lors de la lecture initiale : {str(e)}")
