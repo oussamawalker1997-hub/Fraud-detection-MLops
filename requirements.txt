@@ -8,3 +8,4 @@ pandas
 mlflow
 xgboost
 scikit-learn
+evidently
