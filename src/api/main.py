@@ -132,9 +132,10 @@ def predict_fraud(transaction: Transaction, api_key: str = Depends(get_api_key))
         "message": "Transaction frauduleuse détectée !" if is_fraud == 1 else "Transaction légitime."
     }
 
-def process_batch_in_background(df: pd.DataFrame, required_columns: set, job_id: str):
+def process_batch_in_background(df: pd.DataFrame, ordered_columns: list, job_id: str):
     try:
-        predictions = model.predict(df[list(required_columns)])
+        # L'utilisation d'une liste ordonnée garantit que XGBoost reçoit les features dans le bon ordre
+        predictions = model.predict(df[ordered_columns])
         df['is_fraud_prediction'] = predictions.astype(int)
         
         output_path = f"{reports_path}/batch_result_{job_id}.csv"
@@ -152,14 +153,18 @@ async def predict_fraud_batch(background_tasks: BackgroundTasks, file: UploadFil
         
     try:
         df = pd.read_csv(file.file)
-        required_columns = set(Transaction.model_fields.keys())
+        # 1. On récupère la liste EXACTE et ordonnée des colonnes du modèle Pydantic
+        ordered_columns = list(Transaction.model_fields.keys())
+        # 2. On utilise un set uniquement pour la validation mathématique d'inclusion
+        required_columns_set = set(ordered_columns)
         
-        if not required_columns.issubset(df.columns):
-            missing = required_columns - set(df.columns)
+        if not required_columns_set.issubset(df.columns):
+            missing = required_columns_set - set(df.columns)
             raise HTTPException(status_code=400, detail=f"Colonnes manquantes : {missing}")
 
         job_id = str(uuid.uuid4())[:8]
-        background_tasks.add_task(process_batch_in_background, df, required_columns, job_id)
+        # 3. On passe la liste ordonnée (et non le set) à la tâche d'arrière-plan
+        background_tasks.add_task(process_batch_in_background, df, ordered_columns, job_id)
         
         return {
             "status": "accepted",
