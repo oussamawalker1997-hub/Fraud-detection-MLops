@@ -132,9 +132,9 @@ def predict_fraud(transaction: Transaction, api_key: str = Depends(get_api_key))
         "message": "Transaction frauduleuse détectée !" if is_fraud == 1 else "Transaction légitime."
     }
 
-def process_batch_in_background(df: pd.DataFrame, required_columns: set, job_id: str):
+def process_batch_in_background(df: pd.DataFrame, ordered_features: list, job_id: str):
     try:
-        predictions = model.predict(df[list(required_columns)])
+        predictions = model.predict(df[ordered_features])
         df['is_fraud_prediction'] = predictions.astype(int)
         
         output_path = f"{reports_path}/batch_result_{job_id}.csv"
@@ -152,14 +152,14 @@ async def predict_fraud_batch(background_tasks: BackgroundTasks, file: UploadFil
         
     try:
         df = pd.read_csv(file.file)
-        required_columns = set(Transaction.model_fields.keys())
+        ordered_features = list(Transaction.model_fields.keys())
         
-        if not required_columns.issubset(df.columns):
-            missing = required_columns - set(df.columns)
+        if not set(ordered_features).issubset(df.columns):
+            missing = set(ordered_features) - set(df.columns)
             raise HTTPException(status_code=400, detail=f"Colonnes manquantes : {missing}")
 
         job_id = str(uuid.uuid4())[:8]
-        background_tasks.add_task(process_batch_in_background, df, required_columns, job_id)
+        background_tasks.add_task(process_batch_in_background, df, ordered_features, job_id)
         
         return {
             "status": "accepted",
