@@ -5,8 +5,7 @@ python-multipart
 pytest
 httpx
 pandas==3.0.6
-mlflow==3.17.1
+mlflow==3.17.0
 xgboost==3.4.1
 scikit-learn==1.9.1
 evidently
-mlflow==3.17.0
