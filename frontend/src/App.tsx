@@ -1,205 +1,229 @@
-import { useEffect, useState } from "react";
-import { Card, Text, Metric, Grid, BadgeDelta, Badge, Button, NumberInput, Divider, Callout, ProgressBar } from "@tremor/react";
-import { Activity, AlertTriangle, CheckCircle, XCircle, ShieldCheck, ShieldAlert, Zap, Cpu } from "lucide-react";
+import { useState, useRef } from 'react';
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
+const API_KEY = "mlops-dev-key-2026";
+const API_URL = "http://localhost:8080";
 
 export default function App() {
-  const [apiStatus, setApiStatus] = useState<"checking" | "healthy" | "error">("checking");
-  const [modelVersion, setModelVersion] = useState<string>("Loading...");
+  const [amount, setAmount] = useState(45.5);
+  const [time, setTime] = useState(1200);
+  const [hiddenVars, setHiddenVars] = useState(Array(28).fill(0));
+  
+  const [result, setResult] = useState<any>(null);
+  const [history, setHistory] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  
+  const [batchStatus, setBatchStatus] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Structure exacte de la classe Pydantic
-  const [formData, setFormData] = useState({
-    Time: 0, Amount: 150.00,
-    V1: 0, V2: 0, V3: 0, V4: 0, V5: 0, V6: 0, V7: 0, V8: 0, V9: 0, V10: 0,
-    V11: 0, V12: 0, V13: 0, V14: 0, V15: 0, V16: 0, V17: 0, V18: 0, V19: 0, V20: 0,
-    V21: 0, V22: 0, V23: 0, V24: 0, V25: 0, V26: 0, V27: 0, V28: 0
-  });
-
-  const [isPredicting, setIsPredicting] = useState<boolean>(false);
-  const [riskScore, setRiskScore] = useState<number | null>(null);
-  const [isFraud, setIsFraud] = useState<boolean | null>(null);
-  const [riskLevel, setRiskLevel] = useState<string>("");
-
-  useEffect(() => {
-    fetch(`${API_URL}/`)
-      .then((res) => {
-        if (!res.ok) throw new Error("API not responding");
-        return res.json();
-      })
-      .then((data) => {
-        setApiStatus("healthy");
-        setModelVersion(data.model_uri === "not_set" ? "Model Missing" : "Model Loaded");
-      })
-      .catch(() => {
-        setApiStatus("error");
-        setModelVersion("Offline");
-      });
-  }, []);
-
-  // Générateurs de profils pour tester l'IA
-  const loadSafeTransaction = () => {
-    setFormData({
-      ...formData, Amount: 45.50, Time: 1200, 
-      V1: 1.2, V2: 0.1, V3: 0.5, V4: 0.2, V14: 0.1, V17: -0.2 // Profil normal
-    });
+  // 1. STORYTELLING : Scénarios métiers concrets
+  const loadScenario = (type: 'coffee' | 'hack') => {
+    if (type === 'coffee') {
+      setAmount(3.5);
+      setTime(36000); // 10:00 AM
+      setHiddenVars(Array(28).fill(0.1)); // Variables saines
+    } else {
+      // VRAIE empreinte mathématique d'une fraude issue du dataset
+      setAmount(0.0);
+      setTime(406);
+      setHiddenVars([
+        -2.312226542, 1.951992011, -1.609850732, 3.997905588, -0.522187865,
+        -1.426545319, -2.537387306, 1.391657248, -2.770089277, -2.772272145,
+        3.202033207, -2.899907388, -0.595221881, -4.289253782, 0.389724120,
+        -1.140747180, -2.830055675, -0.016822468, 0.416955705, 0.126910559,
+        0.517232371, -0.035049369, -0.465211076, 0.320198199, 0.044519167,
+        0.177839798, 0.261145003, -0.143275875
+      ]);
+    }
   };
 
-  const loadFraudTransaction = () => {
-    setFormData({
-      ...formData, Amount: 999.99, Time: 406, 
-      V1: -2.3, V2: 1.5, V3: -4.5, V4: 3.2, V14: -5.6, V17: -6.2 // Profil fraude typique
-    });
-  };
-
-  const handlePredict = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsPredicting(true);
-    setRiskScore(null);
+  const handlePredict = async () => {
+    setLoading(true);
+    const payload = {
+      Time: time,
+      Amount: amount,
+      ...Object.fromEntries(hiddenVars.map((v, i) => [`V${i + 1}`, v]))
+    };
 
     try {
-      const response = await fetch(`${API_URL}/predict`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+      const res = await fetch(`${API_URL}/predict`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': API_KEY
+        },
+        body: JSON.stringify(payload)
       });
-
-      if (!response.ok) throw new Error("Erreur de l'API");
-      const data = await response.json();
-      
-      setIsFraud(data.is_fraud === 1); 
-    setRiskScore(Number((data.risk_score * 100).toFixed(2)));
-      setRiskLevel(data.risk_level);
-
+      const data = await res.json();
+      setResult(data);
+      // 2. LIVE FEED : Ajout au flux en direct
+      setHistory(prev => [{ time: new Date().toLocaleTimeString(), amount, data }, ...prev].slice(0, 5));
     } catch (error) {
-      console.error("Erreur:", error);
-      alert("Échec de la prédiction.");
-    } finally {
-      setIsPredicting(false);
+      console.error(error);
+      alert("Erreur de connexion à l'API. Le conteneur Docker tourne-t-il ?");
+    }
+    setLoading(false);
+  };
+
+  // 3. DRAG & DROP : Traitement CSV
+  const handleBatchUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setBatchStatus("Envoi en cours...");
+    try {
+      const res = await fetch(`${API_URL}/predict/batch`, {
+        method: 'POST',
+        headers: {
+          'X-API-Key': API_KEY
+        },
+        body: formData
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBatchStatus(`✅ Fichier accepté. Analyse en cours (Job ID: ${data.job_id})`);
+      } else {
+        setBatchStatus(`❌ Erreur: ${data.detail}`);
+      }
+    } catch (error) {
+      setBatchStatus("❌ Erreur de communication avec le serveur.");
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-8">
-      <div className="max-w-7xl mx-auto space-y-8">
-        
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">Fraud Intelligence</h1>
-            <p className="text-slate-500 mt-1">Real-Time Risk Analytics Platform</p>
-          </div>
-          {apiStatus === "healthy" ? <Badge color="emerald" icon={CheckCircle}>API Connected</Badge> : <Badge color="red" icon={XCircle}>Offline</Badge>}
+    <div className="min-h-screen bg-slate-50 p-8 font-sans text-slate-900">
+      <header className="mb-8 flex justify-between items-center max-w-6xl mx-auto">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Fraud Intelligence</h1>
+          <p className="text-slate-500">Tableau de Bord Analytique MLOps</p>
         </div>
+        <div className="flex items-center gap-2 bg-emerald-100 text-emerald-800 px-4 py-2 rounded-full text-sm font-semibold shadow-sm">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          Moteur XGBoost Actif
+        </div>
+      </header>
 
-        <Grid numItemsSm={2} numItemsLg={3} className="gap-6">
-          <Card decoration="top" decorationColor="blue">
-            <div className="flex items-center gap-2">
-              <Activity className="w-5 h-5 text-blue-500" />
-              <Text>Transactions Analyzed</Text>
-            </div>
-            <Metric>1,245</Metric>
-          </Card>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
+        
+        <div className="lg:col-span-2 space-y-8">
           
-          <Card decoration="top" decorationColor="red">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-red-500" />
-              <Text>Fraud Detections</Text>
+          {/* Panneau Scénarios */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <h2 className="text-lg font-bold mb-4">1. Profils d'Achat (Scénarios de test)</h2>
+            <div className="flex gap-4">
+              <button onClick={() => loadScenario('coffee')} className="flex-1 p-4 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 rounded-lg text-left transition-colors">
+                <div className="font-bold text-emerald-800">☕ Achat Quotidien</div>
+                <div className="text-sm text-emerald-600">Café à 3.50$ (Heure de bureau, IP locale)</div>
+              </button>
+              <button onClick={() => loadScenario('hack')} className="flex-1 p-4 border border-rose-200 bg-rose-50 hover:bg-rose-100 rounded-lg text-left transition-colors">
+                <div className="font-bold text-rose-800">🚨 Comportement Suspect</div>
+                <div className="text-sm text-rose-600">Achat de 4500$ (3h du matin, IP étrangère)</div>
+              </button>
             </div>
-            <div className="flex items-center justify-between">
-              <Metric>12</Metric>
-              <BadgeDelta deltaType="moderateIncrease">1.2% rate</BadgeDelta>
-            </div>
-          </Card>
+          </div>
 
-          <Card decoration="top" decorationColor="emerald">
-            <Text>Active AI Engine</Text>
-            <Metric className="truncate" title={modelVersion}>{modelVersion.split('/').pop() || 'Loading...'}</Metric>
-            <Text className="mt-2 text-xs">Cloud Run Inference Active</Text>
-          </Card>
-        </Grid>
-
-        <Grid numItemsSm={1} numItemsLg={3} className="gap-6 mt-8">
-          {/* Colonne Formulaire */}
-          <Card className="lg:col-span-2">
-            <div className="flex items-center justify-between mb-4">
-              <Text className="font-semibold text-lg text-slate-700">Live Transaction Scoring</Text>
-              <div className="flex gap-2">
-                <Button size="xs" color="emerald" variant="secondary" onClick={loadSafeTransaction}>Load Safe Profile</Button>
-                <Button size="xs" color="red" variant="secondary" onClick={loadFraudTransaction}>Load Fraud Profile</Button>
+          {/* Formulaire Temps Réel */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <h2 className="text-lg font-bold mb-4">2. Inférence en Temps Réel</h2>
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div>
+                <label className="block text-sm font-semibold mb-2">Montant de la transaction ($)</label>
+                <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="w-full p-3 border rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-2">Temps écoulé (Secondes)</label>
+                <input type="number" value={time} onChange={e => setTime(Number(e.target.value))} className="w-full p-3 border rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" />
               </div>
             </div>
-            <Divider />
-            
-            <form onSubmit={handlePredict} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Text className="mb-1 font-medium">Amount ($)</Text>
-                  <NumberInput 
-                    value={formData.Amount} 
-                    onChange={(e) => setFormData({...formData, Amount: Number(e.target.value)})} 
-                  />
-                </div>
-                <div>
-                  <Text className="mb-1 font-medium">Time (Seconds)</Text>
-                  <NumberInput 
-                    value={formData.Time} 
-                    onChange={(e) => setFormData({...formData, Time: Number(e.target.value)})} 
-                  />
-                </div>
-              </div>
-              
-              <div className="bg-slate-100 p-3 rounded-lg flex items-center gap-2 text-sm text-slate-500">
-                <Cpu className="w-4 h-4" />
-                <span>28 hidden PCA variables (V1-V28) are auto-populated based on the selected profile for model compatibility.</span>
-              </div>
+            <button 
+              onClick={handlePredict}
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-lg shadow-md transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Analyse par le modèle en cours...' : '⚡ Évaluer le Risque avec l\'IA'}
+            </button>
+          </div>
 
-              <div className="pt-4">
-                <Button 
-                  type="submit" size="lg" icon={Zap} loading={isPredicting} 
-                  loadingText="Running XGBoost Inference..." className="w-full bg-blue-600 hover:bg-blue-700"
-                >
-                  Analyze Transaction Risk
-                </Button>
-              </div>
-            </form>
-          </Card>
-
-          {/* Colonne Résultats */}
-          <Card>
-            <Text className="font-semibold text-lg text-slate-700 mb-4">Risk Assessment</Text>
-            <Divider />
-            
-            {riskScore === null ? (
-              <div className="h-48 flex items-center justify-center text-slate-400 text-sm text-center">
-                Submit a transaction to view<br/>the AI fraud probability score.
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <div className="text-center">
-                 <Text>Fraud Risk Probability</Text>
-                  <Metric className={isFraud ? "text-red-600" : "text-emerald-600"}>
-                    {riskScore}%
-                  </Metric>
-                  <Badge size="xs" color={isFraud ? "red" : "emerald"} className="mt-2">
-                    {riskLevel}
-                  </Badge>
-                </div>
-                
-                <ProgressBar value={riskScore} color={isFraud ? "red" : "emerald"} className="mt-2" />
-
-                {isFraud ? (
-                  <Callout title="High Fraud Risk Detected" icon={ShieldAlert} color="red">
-                    The AI flagged this transaction as highly anomalous. Immediate manual review recommended.
-                  </Callout>
-                ) : (
-                  <Callout title="Transaction Safe" icon={ShieldCheck} color="emerald">
-                    Behavior aligns with standard customer patterns. No anomalies detected.
-                  </Callout>
-                )}
+          {/* Panneau Batch (CSV Drag & Drop) */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <h2 className="text-lg font-bold mb-4">3. Traitement par Lots (Upload CSV)</h2>
+            <div 
+              className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={handleBatchUpload} />
+              <div className="text-slate-600 font-semibold text-lg">📁 Cliquez ici pour importer un fichier CSV</div>
+              <div className="text-sm text-slate-400 mt-2">Format attendu : 30 colonnes (Time, V1-V28, Amount)</div>
+            </div>
+            {batchStatus && (
+              <div className="mt-4 p-4 bg-slate-800 text-white rounded-lg text-sm font-medium shadow-inner">
+                {batchStatus}
               </div>
             )}
-          </Card>
-        </Grid>
+          </div>
+
+        </div>
+
+        {/* Colonne de Droite */}
+        <div className="space-y-8">
+          
+          {/* 4. EXPLICABILITÉ (XAI) */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 min-h-[300px]">
+            <h2 className="text-lg font-bold mb-4">Décision de l'IA (XAI)</h2>
+            
+            {result ? (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="text-center p-6 rounded-xl bg-slate-50 border">
+                  <div className="text-sm font-bold text-slate-500 uppercase tracking-wide">Probabilité de Fraude</div>
+                  <div className={`text-5xl font-black mt-2 ${result.is_fraud ? 'text-rose-600' : 'text-emerald-600'}`}>
+                    {(result.risk_score * 100).toFixed(1)}%
+                  </div>
+                  <div className={`inline-block mt-4 px-4 py-1 rounded-full text-sm font-bold text-white ${result.is_fraud ? 'bg-rose-500' : 'bg-emerald-500'}`}>
+                    {result.risk_level}
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                  <h3 className="font-bold text-sm mb-3 text-slate-800">🔍 Facteurs Clés d'Analyse :</h3>
+                  <ul className="space-y-3">
+                    {result.explanations?.map((exp: string, idx: number) => (
+                      <li key={idx} className="flex gap-3 items-start text-sm text-slate-600 leading-tight">
+                        <span className="text-blue-500 font-bold">→</span> {exp}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-48 text-slate-400 text-sm text-center border-2 border-dashed rounded-xl">
+                En attente d'une transaction à évaluer.
+              </div>
+            )}
+          </div>
+
+          {/* 5. LIVE FEED (Historique récent) */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <h2 className="text-lg font-bold mb-4">Flux en Direct (Live Feed)</h2>
+            <div className="space-y-3">
+              {history.length > 0 ? history.map((item, idx) => (
+                <div key={idx} className="flex justify-between items-center p-3 rounded-lg border bg-slate-50 text-sm animate-in fade-in slide-in-from-left-4">
+                  <div>
+                    <div className="font-bold">{item.amount}$</div>
+                    <div className="text-xs text-slate-500">Heure d'analyse : {item.time}</div>
+                  </div>
+                  <div className={`px-2 py-1 rounded text-xs font-bold ${item.data.is_fraud ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                    {item.data.risk_level}
+                  </div>
+                </div>
+              )) : (
+                <div className="text-sm text-slate-400 text-center py-8">Aucune activité récente.</div>
+              )}
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   );
