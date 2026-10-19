@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import uuid
+import numpy as np
 from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile, File, Security, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -8,6 +9,8 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 from typing import List
 import mlflow
+import xgboost as xgb
+import mlflow.xgboost
 
 app = FastAPI(
     title="Fraud Intelligence API",
@@ -24,7 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. Configuration de l'authentification par clé d'API (Correction OpenAPI)
+# 2. Configuration de l'authentification par clé d'API
 API_KEY = os.getenv("API_KEY", "mlops-dev-key-2026")
 api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=True)
 
@@ -33,29 +36,34 @@ def get_api_key(api_key: str = Security(api_key_scheme)):
         raise HTTPException(status_code=403, detail="Accès refusé : Clé d'API invalide.")
     return api_key
 
-# Exposer le dossier des rapports Evidently AI
+# Exposer le dossier des rapports
 reports_path = "/app/reports" if os.path.exists("/app/reports") else "reports"
-if os.path.exists(reports_path):
-    app.mount("/reports", StaticFiles(directory=reports_path), name="reports")
+os.makedirs(reports_path, exist_ok=True) # S'assure que le dossier existe
+app.mount("/reports", StaticFiles(directory=reports_path), name="reports")
 
+# Chargement du modèle avec auto-détection robuste
 model = None
 model_uri = "not_set"
 
-# Chargement du modèle
 if os.getenv("TESTING") == "True":
     model_uri = "test_mode"
 else:
     try:
+        # Cherche automatiquement le dossier contenant le modèle MLflow
         for root_dir, dirs, files in os.walk("/app"):
             if "MLmodel" in files:
                 model_uri = root_dir
                 break
         
         if model_uri != "not_set":
-            model = mlflow.pyfunc.load_model(model_uri)
+            print(f"[*] Modèle MLflow trouvé à l'emplacement : {model_uri}")
+            # CORRECTION : Chargement strict via l'API native XGBoost
+            model = mlflow.xgboost.load_model(model_uri)
         else:
+            print("[ERREUR] Aucun fichier MLmodel trouvé dans l'image Docker.")
             model_uri = "model_file_not_found"
     except Exception as e:
+        print(f"[ERREUR CRITIQUE] Plantage lors du chargement : {e}")
         model_uri = f"error_loading: {e}"
 
 class Transaction(BaseModel):
@@ -96,66 +104,66 @@ def health_check():
         raise HTTPException(status_code=503, detail=f"Modèle non chargé. Raison : {model_uri}")
     return {"status": "healthy", "model_uri": model_uri, "api_version": "1.1.0"}
 
-# 3. Injection de la dépendance get_api_key sur les routes sensibles
+# 3. Endpoint Temps Réel avec probabilités continues
 @app.post("/predict")
 def predict_fraud(transaction: Transaction, api_key: str = Depends(get_api_key)):
     if model is None:
         raise HTTPException(status_code=503, detail="Modèle non chargé.")
     
-    input_data = pd.DataFrame([transaction.model_dump()])
+    ordered_columns = list(Transaction.model_fields.keys())
+    input_data = pd.DataFrame([transaction.model_dump()])[ordered_columns]
     
     try:
-        if hasattr(model, "_model_impl") and hasattr(model._model_impl, "predict_proba"):
-            probs = model._model_impl.predict_proba(input_data)
-            risk_score = float(probs[0][1])
-        elif hasattr(model, "unwrap_python_model"):
-            unwrapped = model.unwrap_python_model()
-            if hasattr(unwrapped, "predict_proba"):
-                probs = unwrapped.predict_proba(input_data)
-                risk_score = float(probs[0][1])
-            else:
-                risk_score = float(unwrapped.predict(input_data)[0])
-        else:
-            prediction = model.predict(input_data)
-            risk_score = float(prediction[0][1] if prediction.ndim > 1 else prediction[0])
-            
+        # Plus besoin de DMatrix ! On passe le DataFrame directement
+        # On utilise predict_proba pour récupérer la probabilité mathématique
+        probabilities = model.predict_proba(input_data)
+        
+        # probabilities renvoie [[prob_safe, prob_fraud]]
+        risk_score = float(probabilities[0][1])
+        
     except Exception as e:
-        prediction = model.predict(input_data)
-        risk_score = float(prediction[0])
+        raise HTTPException(status_code=500, detail=f"Erreur d'inférence probabiliste : {str(e)}")
     
     is_fraud = int(risk_score > 0.5)
     
     return {
         "is_fraud": is_fraud,
-        "risk_score": float(risk_score), 
+        "risk_score": risk_score, 
         "risk_level": "CRITICAL" if risk_score > 0.7 else ("WARNING" if risk_score > 0.3 else "SAFE"),
-        "message": "Transaction frauduleuse détectée !" if is_fraud == 1 else "Transaction légitime."
+        "message": "Anomalie détectée par le modèle XGBoost." if is_fraud == 1 else "Transaction classée normale.",
+        "explanations": ["Probabilité mathématique extraite avec succès."]
     }
 
+# Fonction de traitement par lot en arrière-plan
 def process_batch_in_background(df: pd.DataFrame, ordered_columns: list, job_id: str):
     try:
-        # L'utilisation d'une liste ordonnée garantit que XGBoost reçoit les features dans le bon ordre
-        predictions = model.predict(df[ordered_columns])
-        df['is_fraud_prediction'] = predictions.astype(int)
+        # On passe directement le DataFrame
+        probabilities = model.predict_proba(df[ordered_columns])
+        
+        # On extrait la colonne des probabilités de fraude
+        risk_scores = probabilities[:, 1]
+        
+        # Ajout des résultats au CSV
+        df['risk_score'] = risk_scores
+        df['is_fraud_prediction'] = (risk_scores > 0.5).astype(int)
         
         output_path = f"{reports_path}/batch_result_{job_id}.csv"
         df.to_csv(output_path, index=False)
+        print(f"[*] Job {job_id} terminé. Résultats sauvegardés dans {output_path}")
     except Exception as e:
         print(f"[ERROR] Échec du job {job_id}: {str(e)}")
 
+# 4. Endpoint Batch (Upload CSV)
 @app.post("/predict/batch")
 async def predict_fraud_batch(background_tasks: BackgroundTasks, file: UploadFile = File(...), api_key: str = Depends(get_api_key)):
     if model is None:
         raise HTTPException(status_code=503, detail="Modèle non chargé.")
-    
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Seuls les fichiers CSV sont acceptés.")
         
     try:
         df = pd.read_csv(file.file)
-        # 1. On récupère la liste EXACTE et ordonnée des colonnes du modèle Pydantic
         ordered_columns = list(Transaction.model_fields.keys())
-        # 2. On utilise un set uniquement pour la validation mathématique d'inclusion
         required_columns_set = set(ordered_columns)
         
         if not required_columns_set.issubset(df.columns):
@@ -163,7 +171,6 @@ async def predict_fraud_batch(background_tasks: BackgroundTasks, file: UploadFil
             raise HTTPException(status_code=400, detail=f"Colonnes manquantes : {missing}")
 
         job_id = str(uuid.uuid4())[:8]
-        # 3. On passe la liste ordonnée (et non le set) à la tâche d'arrière-plan
         background_tasks.add_task(process_batch_in_background, df, ordered_columns, job_id)
         
         return {
@@ -172,6 +179,5 @@ async def predict_fraud_batch(background_tasks: BackgroundTasks, file: UploadFil
             "job_id": job_id,
             "results_url": f"/reports/batch_result_{job_id}.csv"
         }
-        
     except Exception as e:
          raise HTTPException(status_code=500, detail=f"Erreur lors de la lecture initiale : {str(e)}")
