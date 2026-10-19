@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import uuid
 import numpy as np
-from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile, File, Security, Depends
+from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile, File, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import APIKeyHeader
@@ -27,7 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. Configuration de l'authentification par clé d'API
+# 2. Authentification par clé d'API (OpenAPI Security Scheme)
 API_KEY = os.getenv("API_KEY", "mlops-dev-key-2026")
 api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=True)
 
@@ -39,12 +39,13 @@ def get_api_key(api_key: str = Security(api_key_scheme)):
 # Exposer le dossier des rapports
 reports_path = "/app/reports" if os.path.exists("/app/reports") else "reports"
 os.makedirs(reports_path, exist_ok=True)
-app.mount("/reports", StaticFiles(directory=reports_path), name="reports")
+if os.path.exists(reports_path):
+    app.mount("/reports", StaticFiles(directory=reports_path), name="reports")
 
-# Chargement du modèle avec auto-détection robuste
 model = None
 model_uri = "not_set"
 
+# Chargement du modèle XGBoost natif (Probabiliste)
 if os.getenv("TESTING") == "True":
     model_uri = "test_mode"
 else:
@@ -55,13 +56,10 @@ else:
                 break
         
         if model_uri != "not_set":
-            print(f"[*] Modèle MLflow trouvé à l'emplacement : {model_uri}")
             model = mlflow.xgboost.load_model(model_uri)
         else:
-            print("[ERREUR] Aucun fichier MLmodel trouvé dans l'image Docker.")
             model_uri = "model_file_not_found"
     except Exception as e:
-        print(f"[ERREUR CRITIQUE] Plantage lors du chargement : {e}")
         model_uri = f"error_loading: {e}"
 
 class Transaction(BaseModel):
@@ -102,8 +100,8 @@ def health_check():
         raise HTTPException(status_code=503, detail=f"Modèle non chargé. Raison : {model_uri}")
     return {"status": "healthy", "model_uri": model_uri, "api_version": "1.1.0"}
 
-def extract_risk_scores(df: pd.DataFrame) -> np.ndarray:
-    """Extraction polyvalente des probabilités selon le wrapper du modèle."""
+def get_probability_score(df: pd.DataFrame) -> np.ndarray:
+    """Extraction directe des probabilités continues."""
     if hasattr(model, "predict_proba"):
         probs = model.predict_proba(df)
         return probs[:, 1] if len(probs.shape) > 1 else probs
@@ -121,34 +119,46 @@ def predict_fraud(transaction: Transaction, api_key: str = Security(get_api_key)
     input_data = pd.DataFrame([transaction.model_dump()])[ordered_columns]
     
     try:
-        scores = extract_risk_scores(input_data)
+        scores = get_probability_score(input_data)
         risk_score = float(scores[0])
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur d'inférence probabiliste : {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erreur d'inférence : {str(e)}")
     
     is_fraud = int(risk_score > 0.5)
+    
+    explanations = []
+    if is_fraud == 1:
+        if transaction.Amount > 1000:
+            explanations.append(f"Montant inhabituellement élevé ({transaction.Amount}$).")
+        if transaction.Time < 5000:
+            explanations.append("Transaction effectuée à une heure atypique.")
+        if transaction.V1 < -2.0 or transaction.V2 > 2.0:
+            explanations.append("Anomalie détectée dans la signature comportementale.")
+        if not explanations:
+            explanations.append("Déviation forte du modèle comportemental global.")
+    else:
+        explanations.append("Comportement d'achat aligné avec le profil standard du client.")
     
     return {
         "is_fraud": is_fraud,
         "risk_score": risk_score, 
         "risk_level": "CRITICAL" if risk_score > 0.7 else ("WARNING" if risk_score > 0.3 else "SAFE"),
-        "message": "Anomalie détectée par le modèle XGBoost." if is_fraud == 1 else "Transaction classée normale.",
-        "explanations": ["Probabilité mathématique extraite avec succès."]
+        "message": "Transaction frauduleuse détectée !" if is_fraud == 1 else "Transaction légitime.",
+        "explanations": explanations
     }
 
 def process_batch_in_background(df: pd.DataFrame, ordered_columns: list, job_id: str):
     try:
-        risk_scores = extract_risk_scores(df[ordered_columns])
+        risk_scores = get_probability_score(df[ordered_columns])
         df['risk_score'] = risk_scores
         df['is_fraud_prediction'] = (risk_scores > 0.5).astype(int)
-        
         output_path = f"{reports_path}/batch_result_{job_id}.csv"
         df.to_csv(output_path, index=False)
-        print(f"[*] Job {job_id} terminé. Résultats sauvegardés dans {output_path}")
+        print(f"[*] Job Batch {job_id} terminé avec succès.")
     except Exception as e:
         print(f"[ERROR] Échec du job {job_id}: {str(e)}")
 
-# 4. Endpoint Batch (Upload CSV)
+# 4. Endpoint Batch
 @app.post("/predict/batch")
 async def predict_fraud_batch(background_tasks: BackgroundTasks, file: UploadFile = File(...), api_key: str = Security(get_api_key)):
     if model is None:
