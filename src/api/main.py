@@ -18,10 +18,10 @@ app = FastAPI(
     version="1.1.0"
 )
 
-# 1. Configuration CORS stricte (Sécurité)
+# 1. Configuration CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,7 +38,7 @@ def get_api_key(api_key: str = Security(api_key_scheme)):
 
 # Exposer le dossier des rapports
 reports_path = "/app/reports" if os.path.exists("/app/reports") else "reports"
-os.makedirs(reports_path, exist_ok=True) # S'assure que le dossier existe
+os.makedirs(reports_path, exist_ok=True)
 app.mount("/reports", StaticFiles(directory=reports_path), name="reports")
 
 # Chargement du modèle avec auto-détection robuste
@@ -49,7 +49,6 @@ if os.getenv("TESTING") == "True":
     model_uri = "test_mode"
 else:
     try:
-        # Cherche automatiquement le dossier contenant le modèle MLflow
         for root_dir, dirs, files in os.walk("/app"):
             if "MLmodel" in files:
                 model_uri = root_dir
@@ -57,7 +56,6 @@ else:
         
         if model_uri != "not_set":
             print(f"[*] Modèle MLflow trouvé à l'emplacement : {model_uri}")
-            # CORRECTION : Chargement strict via l'API native XGBoost
             model = mlflow.xgboost.load_model(model_uri)
         else:
             print("[ERREUR] Aucun fichier MLmodel trouvé dans l'image Docker.")
@@ -104,9 +102,18 @@ def health_check():
         raise HTTPException(status_code=503, detail=f"Modèle non chargé. Raison : {model_uri}")
     return {"status": "healthy", "model_uri": model_uri, "api_version": "1.1.0"}
 
-# 3. Endpoint Temps Réel avec probabilités continues
+def extract_risk_scores(df: pd.DataFrame) -> np.ndarray:
+    """Extraction polyvalente des probabilités selon le wrapper du modèle."""
+    if hasattr(model, "predict_proba"):
+        probs = model.predict_proba(df)
+        return probs[:, 1] if len(probs.shape) > 1 else probs
+    else:
+        dmatrix = xgb.DMatrix(df)
+        return model.predict(dmatrix)
+
+# 3. Endpoint Temps Réel
 @app.post("/predict")
-def predict_fraud(transaction: Transaction, api_key: str = Depends(get_api_key)):
+def predict_fraud(transaction: Transaction, api_key: str = Security(get_api_key)):
     if model is None:
         raise HTTPException(status_code=503, detail="Modèle non chargé.")
     
@@ -114,13 +121,8 @@ def predict_fraud(transaction: Transaction, api_key: str = Depends(get_api_key))
     input_data = pd.DataFrame([transaction.model_dump()])[ordered_columns]
     
     try:
-        # Plus besoin de DMatrix ! On passe le DataFrame directement
-        # On utilise predict_proba pour récupérer la probabilité mathématique
-        probabilities = model.predict_proba(input_data)
-        
-        # probabilities renvoie [[prob_safe, prob_fraud]]
-        risk_score = float(probabilities[0][1])
-        
+        scores = extract_risk_scores(input_data)
+        risk_score = float(scores[0])
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur d'inférence probabiliste : {str(e)}")
     
@@ -134,16 +136,9 @@ def predict_fraud(transaction: Transaction, api_key: str = Depends(get_api_key))
         "explanations": ["Probabilité mathématique extraite avec succès."]
     }
 
-# Fonction de traitement par lot en arrière-plan
 def process_batch_in_background(df: pd.DataFrame, ordered_columns: list, job_id: str):
     try:
-        # On passe directement le DataFrame
-        probabilities = model.predict_proba(df[ordered_columns])
-        
-        # On extrait la colonne des probabilités de fraude
-        risk_scores = probabilities[:, 1]
-        
-        # Ajout des résultats au CSV
+        risk_scores = extract_risk_scores(df[ordered_columns])
         df['risk_score'] = risk_scores
         df['is_fraud_prediction'] = (risk_scores > 0.5).astype(int)
         
@@ -155,7 +150,7 @@ def process_batch_in_background(df: pd.DataFrame, ordered_columns: list, job_id:
 
 # 4. Endpoint Batch (Upload CSV)
 @app.post("/predict/batch")
-async def predict_fraud_batch(background_tasks: BackgroundTasks, file: UploadFile = File(...), api_key: str = Depends(get_api_key)):
+async def predict_fraud_batch(background_tasks: BackgroundTasks, file: UploadFile = File(...), api_key: str = Security(get_api_key)):
     if model is None:
         raise HTTPException(status_code=503, detail="Modèle non chargé.")
     if not file.filename.endswith('.csv'):
