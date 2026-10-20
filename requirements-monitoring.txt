@@ -1,0 +1,2 @@
+evidently==0.7.23
+pytest==8.4.2

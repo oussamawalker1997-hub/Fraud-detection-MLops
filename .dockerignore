@@ -1,6 +1,11 @@
-﻿venv/
+venv/
 data/
-reports/
+reports/*
+!reports/evaluation_metrics.json
 __pycache__/
 .pytest_cache/
 .git/
+venv_monitoring/
+tests/
+frontend/node_modules/
+requirements-before-separation.bak

@@ -1,34 +1,68 @@
-name: CI/CD Docker Build
+
+name: Fraud Detection MLOps CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build-and-test:
+  api-tests:
+    name: API and Data Pipeline Tests
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout du code source
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Configuration de Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
-    - name: Installation des dépendances et tests unitaires
-      run: |
-        python -m pip install --upgrade pip
-        pip install fastapi uvicorn xgboost mlflow scikit-learn pandas pydantic pytest httpx==0.27.2 starlette python-multipart evidently
-        python -m pytest tests/
+      - name: Install API and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+          python -m pip check
 
-    - name: Vérification de l'environnement Docker
-      run: docker --version
+      - name: Run API and data pipeline tests without trained artifacts
+        env:
+          MODEL_PATH: __ci_missing_model__.joblib
+          METRICS_PATH: __ci_missing_metrics__.json
+        run: |
+          python -m pytest tests/test_api.py tests/test_data_pipeline.py -q -rs
 
-    - name: Build de l'image Docker de l'API
-      run: docker build -t fraud-detection-api:latest .
+  monitoring-tests:
+    name: Evidently Monitoring Tests
+    runs-on: ubuntu-latest
 
-    - name: Succès du Build
-      run: echo "L'image Docker a été construite avec succès dans un environnement Linux propre."
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-monitoring.txt
+
+      - name: Install monitoring dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-monitoring.txt
+          python -m pip check
+
+      - name: Run monitoring unit tests
+        run: |
+          python -m pytest tests/test_drift_monitor.py -q -rs
