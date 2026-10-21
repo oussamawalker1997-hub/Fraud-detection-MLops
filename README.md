@@ -129,21 +129,49 @@ The API verifies the model's SHA-256 checksum, recorded evaluation status, featu
 
 If the artifacts are missing or invalid, `/ready` returns HTTP 503 and inference is unavailable.
 
-### Cloud Run artifact configuration
+### Verified Cloud Run and GCS deployment
 
-The planned Cloud Run deployment uses a private Google Cloud Storage bucket mounted read-only at `/mnt/artifacts`, with these environment variables:
+API v2.0.0 was validated on 2026-10-21 using private Cloud Run
+revision `fraud-detection-api-00022-yas` from Git commit `0f4ea91`.
 
-```text
-MODEL_PATH=/mnt/artifacts/models/v1/fraud_model.joblib
-METRICS_PATH=/mnt/artifacts/models/v1/evaluation_metrics.json
-```
+Production revision `00019-b66` retained 100% of main traffic.
+The tested revision `00022-yas` received 0% of main traffic.
 
-The runtime service account is granted bucket-scoped object-read permissions. Artifacts are not committed to Git or embedded in the Docker image.
+Model artifacts are mounted read-only from the private GCS bucket
+`fraud-mlops-artifacts-723029796275` at `/mnt/artifacts`.
 
-The corrected Docker image and external-volume loading have been tested locally. The Cloud Run deployment of API v2.0.0 has not yet been validated end to end. The currently deployed Cloud Run service was found to be running an older API v1.1.0.
+Runtime environment variables:
+
+- MODEL_PATH=/mnt/artifacts/models/v1/fraud_model.joblib
+- METRICS_PATH=/mnt/artifacts/models/v1/evaluation_metrics.json
+- REPORTS_BUCKET=fraud-mlops-reports-723029796275
+
+Prediction reports are stored in the separate private GCS bucket
+`fraud-mlops-reports-723029796275` under the `batch/` prefix.
+
+Verified results:
+
+- Health and model readiness: HTTP 200.
+- Synthetic CSV batch prediction: HTTP 200.
+- Report persisted in GCS and downloaded through the API.
+- API and GCS copies verified byte-for-byte with SHA-256.
+- Missing report: HTTP 404.
+- Anonymous API and report-download requests: HTTP 403.
+- Python tests: 22 passed, 1 skipped.
+
+The reports bucket uses public access prevention and uniform
+bucket-level access. Files under `batch/` become eligible for
+automatic deletion after 7 days; Soft Delete provides a separate
+7-day recovery period.
+
+Limitations: model scores are uncalibrated, there is no real-time
+transaction stream, and report access is not yet isolated by user.
+The tested revision is intended for a controlled private demo,
+not unrestricted public multi-user use.
+
 ## Limits and next steps
 
-- API v2.0.0 and its external artifact loading have been verified locally. but its active revision was observed running the older API v1.1.0. Deployment of API v2.0.0 and end-to-end cloud inference remain unverified. No live transaction source is configured.
+- API v2.0.0 was validated on private Cloud Run revision `00022-yas`, with 0% of main traffic. Production revision `00019-b66` remains at 100%. No live transaction source is configured.
 - The local training CSV matches the Kaggle/ULB reference dataset after CRLF-to-LF normalization. Reference licensing is documented above; deployment and redistribution must still comply with applicable license conditions.
 - Scores are not calibrated, and F1 threshold selection is not based on a documented fraud-review cost model.
 - The chronological split is useful for a future-period demonstration, but it covers this dataset’s short source period only.
