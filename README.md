@@ -77,6 +77,15 @@ python -m pip install -r requirements-monitoring.txt
 python -m pytest tests/test_drift_monitor.py -q
 ```
 
+## Recruiter demonstration
+
+For the verified React, FastAPI, XGBoost, Cloud Run and GCS
+demonstration, see [RECRUITER_DEMO.md](RECRUITER_DEMO.md).
+
+This walkthrough uses an authenticated local proxy to access
+the private Cloud Run test revision. It does not expose the
+service publicly or change production traffic.
+
 ## Run locally
 
 Install the pinned dependencies in `requirements.txt`, then start the API and frontend in separate terminals:
