@@ -15,3 +15,4 @@ reports/monitoring_v2/
 .github/workflows/main.yml.backup
 requirements-before-separation.bak
 src/monitoring/drift_monitor_v2_backup.py
+.venv/

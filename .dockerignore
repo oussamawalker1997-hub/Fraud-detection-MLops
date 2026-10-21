@@ -8,3 +8,4 @@ venv_monitoring/
 tests/
 frontend/node_modules/
 requirements-before-separation.bak
+.venv/
