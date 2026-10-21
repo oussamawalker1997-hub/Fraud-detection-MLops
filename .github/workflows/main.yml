@@ -40,7 +40,7 @@ jobs:
           MODEL_PATH: __ci_missing_model__.joblib
           METRICS_PATH: __ci_missing_metrics__.json
         run: |
-          python -m pytest tests/test_api.py tests/test_data_pipeline.py -q -rs
+          python -m pytest tests/test_api.py tests/test_data_pipeline.py tests/test_gcs_reports.py -q -rs
 
   monitoring-tests:
     name: Evidently Monitoring Tests
