@@ -16,3 +16,9 @@ reports/monitoring_v2/
 requirements-before-separation.bak
 src/monitoring/drift_monitor_v2_backup.py
 .venv/
+
+# Local development and test outputs
+tmp/
+
+# Local proxy test environment
+.venv-proxy-tests/
