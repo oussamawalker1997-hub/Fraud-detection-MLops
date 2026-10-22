@@ -1,2 +1,4 @@
+pandas==2.2.3
 evidently==0.7.23
 pytest==8.4.2
+statsmodels>=0.14,<1

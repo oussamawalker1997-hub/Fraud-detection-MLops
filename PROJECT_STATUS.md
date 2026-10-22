@@ -58,3 +58,37 @@ The project is a local FastAPI + React/Vite fraud scoring demo. A canonical data
 ## Next recommended task
 
 Resolve dataset provenance/license and establish an artifact release/versioning process; then run the Docker image from a clean environment and complete a browser-to-API CSV upload/download demonstration. After those, define an operational review-cost target before selecting a deployment threshold or calibrating scores.
+
+## Cloud Run and GCS validation (2026-10-21)
+
+This section supersedes earlier statements that cloud deployment
+and remote model inference had not been validated.
+
+- Git branch: `feature/gcs-artifact-loading`.
+- Tested commit: `0f4ea91`.
+- Cloud Build: `b1337eb4-baf9-44a0-9284-7682c5a7a17c`, SUCCESS.
+- Cloud Run test revision: `fraud-detection-api-00022-yas`.
+- Production revision `00019-b66` retained 100% main traffic.
+- Test revision `00022-yas` received 0% main traffic.
+- `/health` and `/ready` returned HTTP 200.
+- XGBoost model loaded from a read-only GCS mount.
+- Synthetic batch prediction returned HTTP 200.
+- Generated CSV was persisted in the private reports bucket.
+- CSV download through the API returned HTTP 200.
+- API and GCS copies were identical by SHA-256.
+- Missing report returned HTTP 404.
+- Anonymous readiness and report-download requests returned HTTP 403.
+- Python suite: 22 passed, 1 skipped.
+- GCS lifecycle deletes `batch/` objects after 7 days.
+- Soft Delete provides a separate 7-day recovery period.
+
+Remaining limitations:
+
+- Model scores are uncalibrated.
+- No live transaction stream or deployed drift-monitoring pipeline.
+- No per-user ownership checks on downloaded reports.
+- No public multi-user production readiness claim.
+- GitHub Actions was verified remotely on commit `1edb728`:
+  all four jobs passed (API and Data Pipeline, Evidently Monitoring,
+  Frontend, and Cloud Run Development Proxy).
+- This CI success does not establish public production readiness.

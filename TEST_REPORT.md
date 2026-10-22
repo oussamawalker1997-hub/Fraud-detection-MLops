@@ -60,3 +60,53 @@ The earlier Docker access failure was specific to the restricted execution envir
 - Batch CSV download: HTTP 200, `text/csv`, 5,753 bytes.
 - These checks demonstrate local functionality, not production readiness or a successful clean GitHub checkout.
 - GitHub Actions jobs have not yet been executed remotely.
+
+## 2026-10-21 Cloud Run and GCS integration validation
+
+### Source and build
+
+- Branch: `feature/gcs-artifact-loading`.
+- Tested source commit: `0f4ea91`.
+- Cloud Build ID: `b1337eb4-baf9-44a0-9284-7682c5a7a17c`.
+- Cloud Build final status: SUCCESS.
+- Image digest: `sha256:304f9a8ca63dc54492198a8ceeecb4a8f6e533b2a79c22f74cedb1ce4e50226e`.
+
+### Automated tests
+
+- Command: `REPORTS_BUCKET="" .venv/bin/python -m pytest tests/ -v`.
+- Result: 22 passed, 1 skipped, 0 failed.
+- The skipped test requires a local trained model artifact.
+- Six GCS tests used mocks, including the CSV API upload/download workflow.
+- These unit tests do not independently verify IAM or real GCS writes.
+
+### Private Cloud Run validation
+
+- Service: `fraud-detection-api`.
+- Test revision: `fraud-detection-api-00022-yas`.
+- Main production traffic remained 100% on `00019-b66`.
+- Test revision received 0% of main traffic.
+- `/health`: HTTP 200.
+- `/ready`: HTTP 200.
+- Loaded model: `xgboost_randomized_search:dfd3ee1ed7e0`.
+- Synthetic CSV batch prediction: HTTP 200, one row processed.
+- Actual GCS report creation confirmed.
+- Authenticated CSV download: HTTP 200.
+- Nonexistent report: HTTP 404.
+- Anonymous readiness and report download: HTTP 403.
+
+### GCS persistence evidence
+
+- Reports bucket: `fraud-mlops-reports-723029796275`.
+- Object: `batch/batch_cd5ba15160df454f996d042c94d65eb6.csv`.
+- Object size: 326 bytes.
+- API and GCS downloads were byte-for-byte identical.
+- SHA-256: `bcf19f244e4ec71529b8f2d85fc62ad507711c99653730a74b1e5f5f7948f890`.
+- Lifecycle rule: delete objects under `batch/` after 7 days.
+- Soft Delete: separate 7-day recovery period.
+
+### Remaining limitations
+
+- No per-user ownership authorization for report downloads.
+- Model scores are not calibrated fraud probabilities.
+- No real-time production transaction stream.
+- Private test validation does not establish public production readiness.

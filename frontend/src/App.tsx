@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { DashboardHeader } from './components/DashboardHeader';
+import { MetricCard } from './components/MetricCard';
+import { TransactionForm } from './components/TransactionForm';
+import { BatchCSV, type BatchResult } from './components/BatchCSV';
+import { Activity, Crosshair, ScanSearch, ShieldCheck, Target } from 'lucide-react';
 
 const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8080').replace(/\/$/, '');
 const FEATURES = ['Time', ...Array.from({ length: 28 }, (_, i) => `V${i + 1}`), 'Amount'];
@@ -9,27 +14,6 @@ type Prediction = {
   score_semantics: string;
   threshold: number;
   model_version: string;
-};
-
-type BatchRow = {
-  row: number;
-  status: 'scored' | 'rejected';
-  predicted_label?: number;
-  model_score?: number;
-  error?: string;
-};
-
-type BatchResult = {
-  result_id: string;
-  rows_received: number;
-  rows_processed: number;
-  rows_rejected: number;
-  predicted_positive: number;
-  duration_ms: number;
-  score_semantics: string;
-  model_version: string;
-  results: BatchRow[];
-  download_url: string;
 };
 
 type MetricSummary = {
@@ -63,17 +47,20 @@ async function responseError(response: Response): Promise<string> {
 }
 
 export default function App() {
-  const [values, setValues] = useState<Record<string, number>>(() =>
+  const [values, setValues] = useState<Record<string, number | ''>>(() =>
     Object.fromEntries(FEATURES.map((feature) => [feature, 0])),
   );
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [history, setHistory] = useState<Array<{ amount: number; time: string; prediction: Prediction }>>([]);
   const [metrics, setMetrics] = useState<MetricSummary | null>(null);
   const [ready, setReady] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [batch, setBatch] = useState<BatchResult | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${API_URL}/ready`)
@@ -81,18 +68,38 @@ export default function App() {
         if (!response.ok) throw new Error('Model artifact is not ready. Run the training pipeline first.');
         setReady(true);
       })
-      .catch((reason: Error) => setError(reason.message));
+      .catch((reason: Error) => setError(reason.message))
+      .finally(() => setChecking(false));
+
     fetch(`${API_URL}/metrics`)
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data: MetricSummary | null) => setMetrics(data));
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Metrics unavailable (HTTP ${response.status}).`);
+        }
+        return response.json() as Promise<MetricSummary>;
+      })
+      .then((data) => setMetrics(data))
+      .catch((reason: unknown) => {
+        setMetricsError(
+          reason instanceof Error
+            ? reason.message
+            : 'Failed to load metrics.',
+        );
+      });
   }, []);
 
-  const editFields = useMemo(() => ['Time', ...Array.from({ length: 28 }, (_, i) => `V${i + 1}`), 'Amount'], []);
 
   const handlePredict = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setLoading(true);
     setError(null);
+    setPrediction(null);
+
+    if (FEATURES.some((feature) => values[feature] === '' || !Number.isFinite(values[feature]))) {
+      setError('All 30 input features must contain valid finite numbers.');
+      return;
+    }
+
+    setLoading(true);
     try {
       const response = await fetch(`${API_URL}/predict`, {
         method: 'POST',
@@ -102,7 +109,7 @@ export default function App() {
       if (!response.ok) throw new Error(await responseError(response));
       const result: Prediction = await response.json();
       setPrediction(result);
-      setHistory((previous) => [{ amount: values.Amount, time: new Date().toLocaleTimeString(), prediction: result }, ...previous].slice(0, 8));
+      setHistory((previous) => [{ amount: Number(values.Amount), time: new Date().toLocaleTimeString(), prediction: result }, ...previous].slice(0, 8));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Prediction request failed.');
     } finally {
@@ -114,7 +121,7 @@ export default function App() {
     const file = event.target.files?.[0];
     if (!file) return;
     setBatch(null);
-    setError(null);
+    setBatchError(null);
     setBatchLoading(true);
     const form = new FormData();
     form.append('file', file);
@@ -123,7 +130,7 @@ export default function App() {
       if (!response.ok) throw new Error(await responseError(response));
       setBatch(await response.json());
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'CSV processing failed.');
+      setBatchError(reason instanceof Error ? reason.message : 'CSV processing failed.');
     } finally {
       setBatchLoading(false);
       event.target.value = '';
@@ -133,35 +140,26 @@ export default function App() {
   return (
     <main className="min-h-screen bg-slate-50 p-5 text-slate-900 md:p-8">
       <div className="mx-auto max-w-7xl space-y-6">
-        <header className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold">Fraud Detection</h1>
-            <p className="mt-1 text-slate-600">Local model scoring and batch analysis</p>
-          </div>
-          <div className={`rounded-full px-4 py-2 text-sm font-semibold ${ready ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>
-            {ready ? 'Model ready' : 'Model unavailable'}
-          </div>
-        </header>
+        <DashboardHeader ready={ready} checking={checking} />
 
         {error && <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-4 text-rose-800">{error}</div>}
+
+        {metricsError && (
+          <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            {metricsError}
+          </div>
+        )}
 
         {metrics && (
           <section className="rounded-xl border bg-white p-5 shadow-sm">
             <h2 className="text-lg font-bold">Independent test-set evaluation</h2>
             <p className="mt-1 text-sm text-slate-600">{metrics.selected_model}. These metrics use the saved test labels; batch predictions have no known outcomes.</p>
-            <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
-              {[
-                ['Average precision', metrics.test.average_precision],
-                ['ROC-AUC', metrics.test.roc_auc],
-                ['Precision', metrics.test.precision],
-                ['Recall', metrics.test.recall],
-                ['F1', metrics.test.f1],
-              ].map(([label, value]) => (
-                <div className="rounded-lg bg-slate-50 p-3" key={label}>
-                  <div className="text-xs text-slate-500">{label}</div>
-                  <div className="mt-1 text-xl font-bold">{Number(value).toFixed(3)}</div>
-                </div>
-              ))}
+            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              <MetricCard label="Average Precision" value={metrics.test.average_precision} icon={Target} description="Precision-recall performance" />
+              <MetricCard label="ROC-AUC" value={metrics.test.roc_auc} icon={Activity} description="Ranking discrimination" />
+              <MetricCard label="Precision" value={metrics.test.precision} icon={ShieldCheck} description="Correctness of fraud alerts" />
+              <MetricCard label="Recall" value={metrics.test.recall} icon={ScanSearch} description="Fraud cases detected" />
+              <MetricCard label="F1 Score" value={metrics.test.f1} icon={Crosshair} description="Precision-recall balance" />
             </div>
             <p className="mt-3 text-xs text-slate-500">Test rows: {metrics.test.rows.toLocaleString()} · false positives: {metrics.test.false_positives} · false negatives: {metrics.test.false_negatives} · validation F1 threshold: {metrics.threshold_selection.threshold.toFixed(4)}</p>
           </section>
@@ -171,26 +169,18 @@ export default function App() {
           <section className="rounded-xl border bg-white p-5 shadow-sm lg:col-span-2">
             <h2 className="text-lg font-bold">Score one transaction</h2>
             <p className="mb-4 mt-1 text-sm text-slate-600">Enter the dataset features. V1–V28 are anonymized transformed features; no customer or IP fields are available.</p>
-            <form onSubmit={handlePredict}>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-                {editFields.map((feature) => (
-                  <label className="text-xs font-medium text-slate-600" key={feature}>
-                    {feature}
-                    <input
-                      className="mt-1 w-full rounded-md border bg-slate-50 px-2 py-2 text-sm text-slate-900"
-                      type="number"
-                      step="any"
-                      required
-                      value={values[feature]}
-                      onChange={(event) => setValues((previous) => ({ ...previous, [feature]: Number(event.target.value) }))}
-                    />
-                  </label>
-                ))}
-              </div>
-              <button className="mt-4 w-full rounded-lg bg-blue-700 px-4 py-3 font-semibold text-white disabled:opacity-50" disabled={!ready || loading}>
-                {loading ? 'Scoring…' : 'Score transaction'}
-              </button>
-            </form>
+            <TransactionForm
+              values={values}
+              onChange={(feature, value) =>
+                setValues((previous) => ({
+                  ...previous,
+                  [feature]: value,
+                }))
+              }
+              onSubmit={handlePredict}
+              disabled={!ready}
+              loading={loading}
+            />
 
             {prediction && (
               <div className="mt-5 rounded-lg border bg-slate-50 p-4" aria-live="polite">
@@ -210,40 +200,14 @@ export default function App() {
           </section>
 
           <div className="space-y-6">
-            <section className="rounded-xl border bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-bold">Batch CSV</h2>
-              <p className="mb-4 mt-1 text-sm text-slate-600">Upload a CSV with exactly Time, V1–V28, and Amount. Invalid rows are reported and included in the export.</p>
-              <label className="block cursor-pointer rounded-lg border-2 border-dashed p-6 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                {batchLoading ? 'Processing CSV…' : 'Choose a CSV file'}
-                <input className="sr-only" type="file" accept=".csv,text/csv" disabled={!ready || batchLoading} onChange={handleBatch} />
-              </label>
-              {batch && (
-                <div className="mt-4 space-y-2 text-sm" aria-live="polite">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded bg-slate-50 p-2">Received: <b>{batch.rows_received}</b></div>
-                    <div className="rounded bg-slate-50 p-2">Processed: <b>{batch.rows_processed}</b></div>
-                    <div className="rounded bg-slate-50 p-2">Rejected: <b>{batch.rows_rejected}</b></div>
-                    <div className="rounded bg-slate-50 p-2">Flagged: <b>{batch.predicted_positive}</b></div>
-                  </div>
-                  <p className="text-xs text-slate-500">{batch.duration_ms} ms · {batch.score_semantics}</p>
-                  <a className="inline-block rounded bg-blue-700 px-4 py-2 font-semibold text-white" href={`${API_URL}${batch.download_url}`}>Download enriched CSV</a>
-                  <div className="max-h-72 overflow-auto rounded border">
-                    <table className="w-full text-left text-xs">
-                      <thead className="sticky top-0 bg-slate-100"><tr><th className="p-2">CSV row</th><th>Status</th><th>Prediction / issue</th></tr></thead>
-                      <tbody>
-                        {batch.results.map((row) => (
-                          <tr className="border-t" key={row.row}>
-                            <td className="p-2">{row.row}</td>
-                            <td>{row.status}</td>
-                            <td>{row.status === 'scored' ? `${row.predicted_label ? 'Flagged' : 'Not flagged'} · score ${row.model_score?.toFixed(5)}` : row.error}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </section>
+            <BatchCSV
+              batch={batch}
+              loading={batchLoading}
+              error={batchError}
+              disabled={!ready}
+              apiUrl={API_URL}
+              onUpload={handleBatch}
+            />
 
             <section className="rounded-xl border bg-white p-5 shadow-sm">
               <h2 className="text-lg font-bold">This session’s prediction history</h2>

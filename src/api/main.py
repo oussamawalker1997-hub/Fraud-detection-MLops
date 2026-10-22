@@ -12,12 +12,13 @@ import uuid
 from pathlib import Path
 
 import joblib
+from google.cloud import storage
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.data.make_dataset import FEATURE_COLUMNS
@@ -26,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MODEL_PATH = Path(os.getenv("MODEL_PATH", str(ROOT / "models" / "fraud_model.joblib")))
 METRICS_PATH = Path(os.getenv("METRICS_PATH", str(ROOT / "reports" / "evaluation_metrics.json")))
 REPORTS_PATH = Path(os.getenv("REPORTS_PATH", str(ROOT / "reports" / "batch")))
+REPORTS_BUCKET = os.getenv("REPORTS_BUCKET", "").strip()
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
 MAX_BATCH_ROWS = int(os.getenv("MAX_BATCH_ROWS", "50000"))
 MODEL = None
@@ -199,6 +201,52 @@ def predict(transaction: Transaction) -> dict:
     }
 
 
+
+def _save_batch_report(result_id: str, output: pd.DataFrame) -> None:
+    filename = f"batch_{result_id}.csv"
+    if REPORTS_BUCKET:
+        try:
+            client = storage.Client()
+            blob = client.bucket(REPORTS_BUCKET).blob(f"batch/{filename}")
+            blob.upload_from_string(
+                output.to_csv(index=False),
+                content_type="text/csv",
+                if_generation_match=0,
+            )
+        except Exception as error:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "report_storage_unavailable",
+                        "message": "Unable to persist batch report."},
+            ) from error
+    else:
+        REPORTS_PATH.mkdir(parents=True, exist_ok=True)
+        output.to_csv(REPORTS_PATH / filename, index=False)
+
+
+def _get_batch_report(result_id: str) -> bytes | None:
+    filename = f"batch_{result_id}.csv"
+    if REPORTS_BUCKET:
+        try:
+            client = storage.Client()
+            blob = client.bucket(REPORTS_BUCKET).blob(f"batch/{filename}")
+            return blob.download_as_bytes()
+        except Exception as error:
+            from google.api_core.exceptions import NotFound
+            if isinstance(error, NotFound):
+                return None
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "report_storage_unavailable",
+                        "message": "Unable to retrieve batch report."},
+            ) from error
+
+    path = REPORTS_PATH / filename
+    if not path.is_file():
+        return None
+    return path.read_bytes()
+
+
 @app.post("/predict/batch")
 async def predict_batch(file: UploadFile = File(...)) -> dict:
     _require_model()
@@ -256,8 +304,6 @@ async def predict_batch(file: UploadFile = File(...)) -> dict:
             })
     result_rows.sort(key=lambda result: result["row"])
     result_id = uuid.uuid4().hex
-    REPORTS_PATH.mkdir(parents=True, exist_ok=True)
-    result_file = REPORTS_PATH / f"batch_{result_id}.csv"
     output = frame.copy()
     output["prediction_status"] = "rejected"
     output["predicted_label"] = pd.NA
@@ -270,7 +316,7 @@ async def predict_batch(file: UploadFile = File(...)) -> dict:
         output.loc[valid_positions, "prediction_status"] = "scored"
         output.loc[valid_positions, "predicted_label"] = [item["predicted_label"] for item in result_rows if item["status"] == "scored"]
         output.loc[valid_positions, "model_score"] = [item["model_score"] for item in result_rows if item["status"] == "scored"]
-    output.to_csv(result_file, index=False)
+    _save_batch_report(result_id, output)
     processed = len(valid_positions)
     rejected = len(errors)
     duration_ms = round((time.perf_counter() - started) * 1000, 3)
@@ -290,10 +336,18 @@ async def predict_batch(file: UploadFile = File(...)) -> dict:
 
 
 @app.get("/predict/batch/{result_id}/download")
-def download_batch(result_id: str) -> FileResponse:
+def download_batch(result_id: str) -> Response:
     if len(result_id) != 32 or any(character not in "0123456789abcdef" for character in result_id):
         raise HTTPException(status_code=404, detail={"code": "result_not_found", "message": "Batch result not found."})
-    path = REPORTS_PATH / f"batch_{result_id}.csv"
-    if not path.is_file():
+
+    contents = _get_batch_report(result_id)
+    if contents is None:
         raise HTTPException(status_code=404, detail={"code": "result_not_found", "message": "Batch result not found."})
-    return FileResponse(path, media_type="text/csv", filename=f"fraud_predictions_{result_id}.csv")
+
+    return Response(
+        content=contents,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="fraud_predictions_{result_id}.csv"'
+        },
+    )
