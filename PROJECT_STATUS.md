@@ -88,4 +88,7 @@ Remaining limitations:
 - No live transaction stream or deployed drift-monitoring pipeline.
 - No per-user ownership checks on downloaded reports.
 - No public multi-user production readiness claim.
-- Remote GitHub Actions execution is not established by these tests.
+- GitHub Actions was verified remotely on commit `1edb728`:
+  all four jobs passed (API and Data Pipeline, Evidently Monitoring,
+  Frontend, and Cloud Run Development Proxy).
+- This CI success does not establish public production readiness.
