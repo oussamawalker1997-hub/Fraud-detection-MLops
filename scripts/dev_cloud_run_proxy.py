@@ -41,11 +41,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 path.startswith("/predict/batch/")
                 and path.endswith("/download")
                 and len(path.split("/")) == 5
-                and path.split("/")[3].isalnum()
+                and path.split("/")[3].isascii() and path.split("/")[3].isalnum()
             )
         )
 
-        if not allowed or parsed.scheme or parsed.netloc:
+        if (not allowed or parsed.scheme or parsed.netloc or parsed.query or parsed.fragment):
             self.send_error(404, "Endpoint not allowed")
             return
 

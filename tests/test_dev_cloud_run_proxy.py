@@ -184,3 +184,67 @@ def test_csv_upload_preserves_body(local_proxy, monkeypatch):
     assert b"sample.csv" in kwargs["data"]
     assert b"Time,Amount" in kwargs["data"]
     assert "multipart/form-data" in kwargs["headers"]["Content-Type"]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/ready?unexpected=1",
+        "/ready%2Fadmin",
+        "/predict/batch/%2e%2e/download",
+        "/predict/batch/abc/download?unexpected=1",
+    ],
+)
+def test_rejects_unexpected_url_variants(local_proxy, path, monkeypatch):
+    from unittest.mock import Mock
+
+    token_mock = Mock(return_value="test-token")
+    upstream_mock = Mock()
+
+    monkeypatch.setattr(proxy, "get_identity_token", token_mock)
+    monkeypatch.setattr(proxy.requests, "request", upstream_mock)
+
+    response = requests.get(
+        f"{local_proxy}{path}",
+        timeout=5,
+    )
+
+    assert response.status_code == 404
+    token_mock.assert_not_called()
+    upstream_mock.assert_not_called()
+
+
+def test_rejects_unicode_download_id(local_proxy, monkeypatch):
+    from unittest.mock import Mock
+
+    token_mock = Mock(return_value="test-token")
+    upstream_mock = Mock()
+
+    monkeypatch.setattr(proxy, "get_identity_token", token_mock)
+    monkeypatch.setattr(proxy.requests, "request", upstream_mock)
+
+    response = requests.get(
+        f"{local_proxy}/predict/batch/café/download",
+        timeout=5,
+    )
+
+    assert response.status_code == 404
+    token_mock.assert_not_called()
+    upstream_mock.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("identifier", "expected"),
+    [
+        ("abc123", True),
+        ("café", False),
+        ("é", False),
+        ("123", True),
+        ("../admin", False),
+        ("abc-def", False),
+        ("", False),
+    ],
+)
+def test_download_identifier_ascii_policy(identifier, expected):
+    accepted = identifier.isascii() and identifier.isalnum()
+    assert accepted is expected
