@@ -63,17 +63,20 @@ async function responseError(response: Response): Promise<string> {
 }
 
 export default function App() {
-  const [values, setValues] = useState<Record<string, number>>(() =>
+  const [values, setValues] = useState<Record<string, number | ''>>(() =>
     Object.fromEntries(FEATURES.map((feature) => [feature, 0])),
   );
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [history, setHistory] = useState<Array<{ amount: number; time: string; prediction: Prediction }>>([]);
   const [metrics, setMetrics] = useState<MetricSummary | null>(null);
   const [ready, setReady] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [batch, setBatch] = useState<BatchResult | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${API_URL}/ready`)
@@ -81,18 +84,39 @@ export default function App() {
         if (!response.ok) throw new Error('Model artifact is not ready. Run the training pipeline first.');
         setReady(true);
       })
-      .catch((reason: Error) => setError(reason.message));
+      .catch((reason: Error) => setError(reason.message))
+      .finally(() => setChecking(false));
+
     fetch(`${API_URL}/metrics`)
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data: MetricSummary | null) => setMetrics(data));
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Metrics unavailable (HTTP ${response.status}).`);
+        }
+        return response.json() as Promise<MetricSummary>;
+      })
+      .then((data) => setMetrics(data))
+      .catch((reason: unknown) => {
+        setMetricsError(
+          reason instanceof Error
+            ? reason.message
+            : 'Failed to load metrics.',
+        );
+      });
   }, []);
 
   const editFields = useMemo(() => ['Time', ...Array.from({ length: 28 }, (_, i) => `V${i + 1}`), 'Amount'], []);
 
   const handlePredict = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setLoading(true);
     setError(null);
+    setPrediction(null);
+
+    if (FEATURES.some((feature) => values[feature] === '' || !Number.isFinite(values[feature]))) {
+      setError('All 30 input features must contain valid finite numbers.');
+      return;
+    }
+
+    setLoading(true);
     try {
       const response = await fetch(`${API_URL}/predict`, {
         method: 'POST',
@@ -102,7 +126,7 @@ export default function App() {
       if (!response.ok) throw new Error(await responseError(response));
       const result: Prediction = await response.json();
       setPrediction(result);
-      setHistory((previous) => [{ amount: values.Amount, time: new Date().toLocaleTimeString(), prediction: result }, ...previous].slice(0, 8));
+      setHistory((previous) => [{ amount: Number(values.Amount), time: new Date().toLocaleTimeString(), prediction: result }, ...previous].slice(0, 8));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Prediction request failed.');
     } finally {
@@ -114,7 +138,7 @@ export default function App() {
     const file = event.target.files?.[0];
     if (!file) return;
     setBatch(null);
-    setError(null);
+    setBatchError(null);
     setBatchLoading(true);
     const form = new FormData();
     form.append('file', file);
@@ -123,7 +147,7 @@ export default function App() {
       if (!response.ok) throw new Error(await responseError(response));
       setBatch(await response.json());
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'CSV processing failed.');
+      setBatchError(reason instanceof Error ? reason.message : 'CSV processing failed.');
     } finally {
       setBatchLoading(false);
       event.target.value = '';
@@ -138,12 +162,18 @@ export default function App() {
             <h1 className="text-3xl font-bold">Fraud Detection</h1>
             <p className="mt-1 text-slate-600">Local model scoring and batch analysis</p>
           </div>
-          <div className={`rounded-full px-4 py-2 text-sm font-semibold ${ready ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>
-            {ready ? 'Model ready' : 'Model unavailable'}
+          <div className={`rounded-full px-4 py-2 text-sm font-semibold ${checking ? 'bg-sky-100 text-sky-800' : ready ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+            {checking ? 'Checking model…' : ready ? 'Model ready' : 'Model unavailable'}
           </div>
         </header>
 
         {error && <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-4 text-rose-800">{error}</div>}
+
+        {metricsError && (
+          <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            {metricsError}
+          </div>
+        )}
 
         {metrics && (
           <section className="rounded-xl border bg-white p-5 shadow-sm">
@@ -182,7 +212,7 @@ export default function App() {
                       step="any"
                       required
                       value={values[feature]}
-                      onChange={(event) => setValues((previous) => ({ ...previous, [feature]: Number(event.target.value) }))}
+                      onChange={(event) => setValues((previous) => ({ ...previous, [feature]: event.target.value === '' ? '' : Number(event.target.value) }))}
                     />
                   </label>
                 ))}
@@ -217,6 +247,11 @@ export default function App() {
                 {batchLoading ? 'Processing CSV…' : 'Choose a CSV file'}
                 <input className="sr-only" type="file" accept=".csv,text/csv" disabled={!ready || batchLoading} onChange={handleBatch} />
               </label>
+              {batchError && (
+                <div role="alert" className="mt-4 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800">
+                  {batchError}
+                </div>
+              )}
               {batch && (
                 <div className="mt-4 space-y-2 text-sm" aria-live="polite">
                   <div className="grid grid-cols-2 gap-2">
