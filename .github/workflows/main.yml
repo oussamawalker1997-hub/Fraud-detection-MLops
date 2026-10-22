@@ -66,3 +66,31 @@ jobs:
       - name: Run monitoring unit tests
         run: |
           python -m pytest tests/test_drift_monitor.py -q -rs
+
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run React component tests
+        run: npx vitest run --config vitest.config.ts
+
+      - name: Build frontend
+        run: npm run build
