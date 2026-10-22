@@ -94,3 +94,27 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+  proxy-tests:
+    name: Cloud Run Development Proxy Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-proxy-dev.txt
+
+      - name: Install proxy test dependencies
+        run: |
+          python -m pip install -r requirements-proxy-dev.txt
+          python -m pip check
+
+      - name: Run proxy security and regression tests
+        run: |
+          python -m pytest tests/test_dev_cloud_run_proxy.py -q -rs
