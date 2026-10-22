@@ -22,3 +22,4 @@ tmp/
 
 # Local proxy test environment
 .venv-proxy-tests/
+.venv-monitoring/
