@@ -21,29 +21,44 @@ Google Cloud project: project-e660b9f9-5c55-4bdd-ab0
 Region: europe-west1
 Service: fraud-detection-api
 
-## 3. Terminal 1 — Cloud Run IAM proxy
+## 3. Terminal 1 — Authenticated development proxy
 
-From Cloud Shell:
+From Cloud Shell, with an authenticated gcloud CLI and Cloud Run invoker permission:
 
-    gcloud run services proxy fraud-detection-api \
-      --project=project-e660b9f9-5c55-4bdd-ab0 \
-      --region=europe-west1 \
-      --tag=api-gcs-test \
-      --port=8080
+First, create the isolated Python environment:
 
-Keep this terminal running.
+    cd ~/fraud-detection-gcs-build
+    python3 -m venv .venv-proxy-tests
+    .venv-proxy-tests/bin/python -m pip install -r requirements-proxy-dev.txt
+
+Check the installation:
+
+    .venv-proxy-tests/bin/python -m pip check
+    .venv-proxy-tests/bin/python -m pytest tests/test_dev_cloud_run_proxy.py -q
+
+All 9 proxy unit tests passed in a clean validation environment.
+
+    cd ~/fraud-detection-gcs-build
+    export CLOUD_RUN_SERVICE_URL=https://fraud-detection-api-f6w7pzdtta-ew.a.run.app
+    export CLOUD_RUN_TEST_URL=https://api-gcs-test---fraud-detection-api-f6w7pzdtta-ew.a.run.app
+    .venv-proxy-tests/bin/python scripts/dev_cloud_run_proxy.py
+
+The local Python environment must include requests.
+Expected output: DEV_PROXY_READY http://127.0.0.1:8081
+
+Keep this terminal running. The proxy obtains a fresh identity token for each request and forwards traffic to the private tagged test revision. It is for trusted local development only, not public exposure.
 
 ## 4. Terminal 2 — React frontend
 
     cd ~/fraud-detection-gcs-build/frontend
-    npm ci --allow-remote=all
+    npm ci
     VITE_API_URL=/api npm run dev -- \
       --host 127.0.0.1 --port 5173 --strictPort
 
 Open the frontend using Cloud Shell Web Preview for port 5173.
 
 The Vite development proxy forwards /api requests to the
-authenticated proxy on 127.0.0.1:8080.
+authenticated Python proxy on 127.0.0.1:8081.
 
 Do not embed Google Cloud credentials in frontend code.
 Do not publish this development proxy as a public service.
@@ -81,17 +96,35 @@ Independent test set:
 The model score is not a calibrated fraud probability.
 These are offline test-set metrics, not live production results.
 
-## 7. Evidence from the verified demo
+## 7. Evidence from verified demonstrations
+
+### Original Cloud Run and GCS validation
 
 - React frontend rendered successfully with Tailwind CSS 4.
 - Single-transaction scoring worked in the browser.
-- Three synthetic CSV transactions were processed successfully.
-- Zero rows were rejected in that batch.
-- The enriched CSV was downloaded and opened successfully.
+- An initial synthetic CSV batch processed three transactions
+  with zero rejected rows.
+- The enriched CSV was downloaded successfully.
 - A 455-byte CSV report was observed in the private reports bucket:
-  batch/batch_f28903a68f3d4ceab45a954e836e0d9e.csv
-- GitHub Actions run 39690379830 succeeded:
-  22 passed, 1 skipped across both jobs.
+  `batch/batch_f28903a68f3d4ceab45a954e836e0d9e.csv`.
+- Historical GitHub Actions run 39690379830 succeeded.
+
+### Updated frontend and CSV validation
+
+- React dashboard, model status and saved metrics displayed successfully.
+- A synthetic transaction returned a Not flagged result.
+- A separate CSV test received 3 rows: 2 processed, 1 rejected,
+  and 0 flagged.
+- Invalid Amount values were reported with a readable error message.
+- The enriched CSV download was previously validated.
+- 14 React component tests passed locally using Vitest.
+- The frontend TypeScript and Vite production build succeeded.
+- All 3 GitHub Actions jobs passed on commit a221003:
+  API and Data Pipeline Tests, Evidently Monitoring Tests,
+  and Frontend Tests.
+
+These are controlled demonstration results, not live payment
+processing or production fraud-detection performance.
 
 ## 8. Architecture and limitations
 
